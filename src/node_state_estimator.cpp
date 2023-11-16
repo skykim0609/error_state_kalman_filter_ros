@@ -1,9 +1,9 @@
 #include <iostream>
 #include <ros/ros.h>
 
-#include "state_estimator_ros.h"
+#include "eskf/optitrack_state_estimator_ros.h"
 
-#include "signal_handler_linux.h"
+#include "eskf/signal_handler_linux.h"
 
 int main(int argc, char **argv) {
     ros::init(argc, argv, "state_estimator_node", ros::init_options::NoSigintHandler);
@@ -15,8 +15,8 @@ int main(int argc, char **argv) {
 
 	try{
 		if(ros::ok()){
-			std::unique_ptr<StateEstimatorROS> st_est;
-			st_est = std::make_unique<StateEstimatorROS>(nh);			
+			std::unique_ptr<OptitrackStateEstimatorRos> st_est;
+			st_est = std::make_unique<OptitrackStateEstimatorRos>(nh);
 		}
 		else throw std::runtime_error("ROS not ok");
 	}

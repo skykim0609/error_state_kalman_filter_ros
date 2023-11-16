@@ -12,6 +12,8 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   sensor_msgs
   nav_msgs
+  apriltag_ros
+  tf
 )
 
 catkin_package(
@@ -20,8 +22,9 @@ catkin_package(
   INCLUDE_DIRS include
 )
 
-set(SRC ${SRC} 
-    src/state_estimator_ros.cpp
+set(SRC ${SRC}
+    src/optitrack_state_estimator_ros.cpp
+    src/apriltag_state_estimator_ros.cpp
 
     src/signal_handler_linux.cpp
     src/timer.cpp
@@ -38,7 +41,10 @@ include_directories( ${catkin_INCLUDE_DIRS} )
 include_directories( ${Eigen_INCLUDE_DIRS} )
 
 # executables
-add_executable(state_estimator_node src/node_state_estimator.cpp ${SRC})
+add_executable(state_estimator_node src/node_state_estimator.cpp ${SRC}
+        include/eskf/apriltag_state_estimator_ros.h
+        src/apriltag_state_estimator_ros.cpp
+        include/eskf/random_utils.h)
 target_link_libraries (state_estimator_node ${catkin_LIBRARIES} ${Eigen_LIBRARIES})
 
 add_executable(test_expm src/test_expm.cpp ${SRC})

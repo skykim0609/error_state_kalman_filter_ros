@@ -1,38 +1,38 @@
-#include "geometry_library.h"
+#include "eskf/geometry_library.h"
 using namespace Eigen;
 namespace geometry {
 
-    Matrix3d skewMat(const Vector3d& v){
-        Matrix3d res_mat;
+    Mat33 skewMat(const Vec3& v){
+        Mat33 res_mat;
         res_mat << 0,-v(2),v(1),
                    v(2),0,-v(0),
                   -v(1),v(0),0;
         return res_mat;
     };
 
-    Matrix4d q_right_mult(const Vector4d& q){
-        Matrix4d omega_r;
+    Mat44 q_right_mult(const Vec4& q){
+        Mat44 omega_r;
         omega_r << q(0),-q(1),-q(2),-q(3),
                    q(1), q(0), q(3),-q(2),
                    q(2),-q(3), q(0), q(1),
                    q(3), q(2),-q(1), q(0);
         return omega_r;
     };
-    Matrix4d q_left_mult(const Vector4d& q){
-        Matrix4d omega_l;
+    Mat44 q_left_mult(const Vec4& q){
+        Mat44 omega_l;
         omega_l << q(0),-q(1),-q(2),-q(3),
                    q(1), q(0),-q(3), q(2),
                    q(2), q(3), q(0),-q(1),
                    q(3),-q(2), q(1), q(0);
         return omega_l;
     };
-    Vector4d q_conj(const Vector4d& q){
-        Vector4d q_c;
+    Vec4 q_conj(const Vec4& q){
+        Vec4 q_c;
         q_c << q(0), -q(1),-q(2),-q(3);
         return q_c;
     };
-    Vector4d q1_mult_q2(const Vector4d& q1, const Vector4d& q2){
-        Vector4d q;
+    Vec4 q1_mult_q2(const Vec4& q1, const Vec4& q2){
+        Vec4 q;
         q << q1(0)*q2(0)-q1(1)*q2(1)-q1(2)*q2(2)-q1(3)*q2(3),
              q1(0)*q2(1)+q1(1)*q2(0)+q1(2)*q2(3)-q1(3)*q2(2),
              q1(0)*q2(2)-q1(1)*q2(3)+q1(2)*q2(0)+q1(3)*q2(1),
@@ -40,8 +40,8 @@ namespace geometry {
         return q;
     };
 
-    Matrix3d q2r(const Vector4d& q){
-        Matrix3d R;
+    Mat33 q2r(const Vec4& q){
+        Mat33 R;
         double qw = q(0);
         double qx = q(1);
         double qy = q(2);
@@ -66,8 +66,8 @@ namespace geometry {
         return R;
     };
 
-    Vector4d rotvec2q(const Vector3d& w){
-        Vector4d q_res;
+    Vec4 rotvec2q(const Vec3& w){
+        Vec4 q_res;
         double th = w(0)*w(0) + w(1)*w(1) + w(2)*w(2);
         th = std::sqrt(th);
         if(th < 1e-7){
@@ -81,10 +81,18 @@ namespace geometry {
         return q_res;
     };
 
-    Matrix3d a2r(double r, double p, double y){
-        Matrix3d Rx;
-        Matrix3d Ry;
-        Matrix3d Rz;
+    Vec3 q2rotvec(const Vec4& q){
+        double cos_th2 = q(0);
+        double sin_th2 = q.tail<3>().norm();
+        double th2 = atan2(sin_th2, cos_th2);
+        Vec3 v = q.tail<3>() / sin_th2;
+        return th2 * v;
+    }
+
+    Mat33 a2r(double r, double p, double y){
+        Mat33 Rx;
+        Mat33 Ry;
+        Mat33 Rz;
 
         Rx << 1,0,0,0,cos(r),-sin(r),0,sin(r),cos(r);
         Ry << cos(p),0,sin(p),0,1,0,-sin(p),0,cos(p);
@@ -93,8 +101,8 @@ namespace geometry {
         return (Rz*Ry*Rx);
     };
 
-    Vector4d r2q(const Matrix3d& R){
-        Vector4d q;
+    Vec4 r2q(const Mat33& R){
+        Vec4 q;
         double qw,qx,qy,qz;
 
         double m00 = R(0,0);
@@ -141,5 +149,19 @@ namespace geometry {
         q(2) = qy;
         q(3) = qz;
         return q;
-    };
+    }
+
+    double diff_q1_q2(const Vec4& q1, const Vec4& q2) {
+        /**
+         * orientation difference between q1 and q2
+         * q1 * conj(q2), evaluate the 2*arcsin ( x2+ y2 +z2 )
+         */
+        Vec4 dq = q1_mult_q2(q1, q_conj(q2));
+        return 2*asin(sqrt(dq(1)*dq(1) + dq(2)*dq(2) + dq(3)*dq(3)));
+    }
+    
+    
+    Vec3 rotate_vec(const Vec4& q1, const Vec3& v){
+        return q2r(q1) * v;
+    }
 };

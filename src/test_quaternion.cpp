@@ -1,6 +1,6 @@
 #include <iostream>
 #include <Eigen/Dense>
-#include "error_state_kalman_filter.h"
+#include "eskf/error_state_kalman_filter.h"
 
 using namespace Eigen;
 int main(int argc, char **argv) {
