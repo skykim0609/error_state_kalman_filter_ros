@@ -39,7 +39,7 @@ private:
 
 public:
     ApriltagStateEstimatorRos(ros::NodeHandle& nh);
-    ~ApriltagStateEstimatorRos();
+    ~ApriltagStateEstimatorRos() = default;
 
 private:
     ros::NodeHandle nh_;

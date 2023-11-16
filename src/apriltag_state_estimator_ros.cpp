@@ -27,10 +27,10 @@ ApriltagStateEstimatorRos::ApriltagStateEstimatorRos(ros::NodeHandle &nh): nh_(n
 
 
     topicname_imu_dt_ = "/imu_dt";
-    topicname_Apriltag_dt_ = "/Apriltag_dt";
+    topicname_Apriltag_dt_ = "/apriltag_dt";
     pub_imu_dt_ = nh_.advertise<std_msgs::Time>
             (topicname_imu_dt_, 1);
-    pub_Apriltag_dt_ = nh_.advertise<std_msgs::Time>
+    pub_apriltag_dt_ = nh_.advertise<std_msgs::Time>
             (topicname_Apriltag_dt_, 1);
 
     // Filter generation
@@ -54,7 +54,7 @@ ApriltagStateEstimatorRos::ApriltagStateEstimatorRos(ros::NodeHandle &nh): nh_(n
     for(int i = 3; i < 7; ++i) q_WT(i) = T_WT_vec_.at(i);
     T_WT_ = {p_WT, q_WT};
 
-    timestamp_last_Apriltag_ = 0.0f;
+    timestamp_last_apriltag_ = 0.0f;
     timestamp_last_imu_ = 0.0f;
 
     // run
@@ -129,6 +129,29 @@ void ApriltagStateEstimatorRos::getParameters() {
     ros::param::get("~noise_Apriltag_position",    noise_Apriltag_position_);
     ros::param::get("~noise_Apriltag_orientation", noise_Apriltag_orientation_);
 }
+
+void ApriltagStateEstimatorRos::run(){
+    int node_rate = 1000;
+    ROS_INFO_STREAM("ApriltagStateEstimatorRos - runs at [" << node_rate <<"] Hz.");
+    ros::Rate rate(node_rate);
+
+    ros::Time t_prev = ros::Time::now();
+    ros::Time t_curr;
+
+    double period_show = 1.0; // sec.
+    while(ros::ok()){
+
+        t_curr = ros::Time::now();
+
+        if( verbose_all_estimation_ && (t_curr-t_prev).toSec() >= period_show ) {
+            filter_->showFilterStates();
+            t_prev = t_curr;
+        }
+
+        ros::spinOnce();
+        rate.sleep();
+    }
+};
 
 void ApriltagStateEstimatorRos::callbackApriltag(const apriltag_ros::AprilTagDetectionConstPtr &msg) {
     T_ct_current_ = msg->pose;

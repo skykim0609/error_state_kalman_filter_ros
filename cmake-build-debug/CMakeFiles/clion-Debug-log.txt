@@ -53,6 +53,6 @@ Call Stack (most recent call first):
 
 -- Eigen found (include: /usr/include/eigen3)
 -- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
--- Configuring done (0.6s)
+-- Configuring done (0.5s)
 -- Generating done (0.0s)
 -- Build files have been written to: /home/skykim0609/catkin_ws/src/error_state_kalman_filter_ros/cmake-build-debug

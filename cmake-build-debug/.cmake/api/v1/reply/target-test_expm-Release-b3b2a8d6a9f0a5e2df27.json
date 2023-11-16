@@ -2,7 +2,7 @@
 	"artifacts" : 
 	[
 		{
-			"path" : "devel/lib/error_state_kalman_filter_ros/state_estimator_node"
+			"path" : "devel/lib/error_state_kalman_filter_ros/test_expm"
 		}
 	],
 	"backtrace" : 1,
@@ -36,13 +36,13 @@
 			{
 				"command" : 0,
 				"file" : 0,
-				"line" : 44,
+				"line" : 51,
 				"parent" : 0
 			},
 			{
 				"command" : 1,
 				"file" : 0,
-				"line" : 48,
+				"line" : 52,
 				"parent" : 0
 			},
 			{
@@ -227,7 +227,7 @@
 			]
 		}
 	],
-	"id" : "state_estimator_node::@6890427a1f51a3e7e1df",
+	"id" : "test_expm::@6890427a1f51a3e7e1df",
 	"link" : 
 	{
 		"commandFragments" : 
@@ -786,8 +786,8 @@
 		],
 		"language" : "CXX"
 	},
-	"name" : "state_estimator_node",
-	"nameOnDisk" : "state_estimator_node",
+	"name" : "test_expm",
+	"nameOnDisk" : "test_expm",
 	"paths" : 
 	{
 		"build" : ".",
@@ -807,14 +807,6 @@
 				5,
 				6
 			]
-		},
-		{
-			"name" : "Header Files",
-			"sourceIndexes" : 
-			[
-				7,
-				8
-			]
 		}
 	],
 	"sources" : 
@@ -822,7 +814,7 @@
 		{
 			"backtrace" : 1,
 			"compileGroupIndex" : 0,
-			"path" : "src/node_state_estimator.cpp",
+			"path" : "src/test_expm.cpp",
 			"sourceGroupIndex" : 0
 		},
 		{
@@ -860,16 +852,6 @@
 			"compileGroupIndex" : 0,
 			"path" : "src/geometry_library.cpp",
 			"sourceGroupIndex" : 0
-		},
-		{
-			"backtrace" : 1,
-			"path" : "include/eskf/apriltag_state_estimator_ros.h",
-			"sourceGroupIndex" : 1
-		},
-		{
-			"backtrace" : 1,
-			"path" : "include/eskf/random_utils.h",
-			"sourceGroupIndex" : 1
 		}
 	],
 	"type" : "EXECUTABLE"

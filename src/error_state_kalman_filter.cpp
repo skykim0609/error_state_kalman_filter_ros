@@ -422,6 +422,8 @@ ESKF::NominalState ESKF::getWorldFrameState(const geometry::Tf &T_wr, const std:
     X_wi.setVelocity(v_WI);
     X_wi.setBiasAcc(X_nom_.ba);
     X_wi.setBiasGyro(X_nom_.bg);
+
+    return X_wi;
 }
 
 

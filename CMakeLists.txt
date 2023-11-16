@@ -23,12 +23,8 @@ catkin_package(
 )
 
 set(SRC ${SRC}
-    src/optitrack_state_estimator_ros.cpp
-    src/apriltag_state_estimator_ros.cpp
-
     src/signal_handler_linux.cpp
     src/timer.cpp
-
     src/error_state_kalman_filter.cpp
     src/geometry_library.cpp
 )
@@ -41,11 +37,11 @@ include_directories( ${catkin_INCLUDE_DIRS} )
 include_directories( ${Eigen_INCLUDE_DIRS} )
 
 # executables
-add_executable(state_estimator_node src/node_state_estimator.cpp ${SRC}
-        include/eskf/apriltag_state_estimator_ros.h
-        src/apriltag_state_estimator_ros.cpp
-        include/eskf/random_utils.h)
-target_link_libraries (state_estimator_node ${catkin_LIBRARIES} ${Eigen_LIBRARIES})
+add_executable(optitrack_state_estimator_node src/node_state_estimator_optitrack.cpp src/optitrack_state_estimator_ros.cpp ${SRC})
+target_link_libraries (optitrack_state_estimator_node ${catkin_LIBRARIES} ${Eigen_LIBRARIES})
+
+add_executable(apriltag_state_estimator_node src/node_state_estimator_apriltag.cpp src/apriltag_state_estimator_ros.cpp ${SRC})
+target_link_libraries (apriltag_state_estimator_node ${catkin_LIBRARIES} ${Eigen_LIBRARIES})
 
 add_executable(test_expm src/test_expm.cpp ${SRC})
 target_link_libraries (test_expm ${catkin_LIBRARIES} ${Eigen_LIBRARIES})
