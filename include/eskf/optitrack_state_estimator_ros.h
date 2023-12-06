@@ -103,6 +103,10 @@ private:
 
     double timestamp_last_optitrack_;
     double timestamp_last_imu_;
+
+    //Added by KGC for init_buffer_
+    int N_init, N_acc;
+    double w_err, w_rot, stdv_samples;
     
 };
 #endif

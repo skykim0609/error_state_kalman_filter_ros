@@ -2,14 +2,13 @@
     <!-- topic names -->
     <!-- <arg name="topic_imu"          default="/vn100t/imu"/> -->
     <!-- <arg name="topic_mag"          default="/vn100t/magnetic_field"/> -->
-    <arg name="topic_imu"          default="/imu/data"/>
-    <arg name="topic_mag"          default="/mag"/>
-    <arg name="topic_optitrack"    default="/optitrack/VN100T_CHK/poseStamped"/>
-    <!-- <arg name="topic_optitrack"    default="/mavros/vision_pose/pose"/> -->
+    <arg name="topic_imu"          default="/camera/imu"/>
+    <arg name="topic_apriltag"    default="/tag_detections"/>
 
     <!-- topicnames of the 'nav_msgs' to be published -->
     <arg name="topic_nav_raw"      default="/state_estimator/raw"/>
     <arg name="topic_nav_filtered" default="/state_estimator/filtered"/>
+    <arg name="config_dir" default="$(find error_state_kalman_filter_ros)/configs"/>
 
     <!-- Verbose all estimation states at every second -->
     <arg name="verbose_all_estimation" default="true"/>
@@ -18,26 +17,25 @@
     <!-- IMU noise parameters -->
     <arg name="noise_accel"        default="0.008"/> <!-- Vectornav VN100t : 0.0008, MPU9250: 0.005-->
     <arg name="noise_gyro"         default="0.000005"/> <!-- Vectornav VN100t : 0.000005, MPU9250: 0.00005-->
-    <arg name="noise_mag"          default="0.0001"/> <!-- no reference... not used in this algorithm-->
 
     <!-- IMU bias initial values. If you dont know, set zeros.-->
+    <!-- Added by KGC. Loading Bias from params? Not good-->
+    <arg name="get_bias_from_params" default="false"/>
     <arg name="acc_bias"           default="[0.011,0.007,0.201]"/> <!-- Vetornav VN100t: 0.011,0.007,0.201, MPU9250: 0,0,0-->
     <arg name="gyro_bias"          default="[0.00435,-0.0011758,-0.011671]"/> <!-- Vetornav VN100t: 0.00435,-0.0011758,-0.011671, MPU9250: 0,0,0-->
-    <arg name="mag_bias"           default="[0.0,0.0,0.0]"/>
 
-    <!-- Optitrack measurement covariance -->
-    <arg name="noise_optitrack_position"    default="0.01"/>
-    <arg name="noise_optitrack_orientation" default="0.001"/>
+    <!-- apriltag measurement covariance -->
+    <arg name="noise_apriltag_position"    default="[0.01, 0.01, 0.06]"/>
+    <arg name="noise_apriltag_orientation" default="[0.02, 0.02, 0.02]"/>
 
     <!-- Fixed rotation from the BODY frame (drone) to IMU frame -->
-    <arg name="q_BI" default="[0.0, 1.0, 0.0, 0.0]"/> <!-- w, x, y, z-->
+<!--    <arg name="q_BI" default="[0.0, 1.0, 0.0, 0.0]"/> &lt;!&ndash; w, x, y, z&ndash;&gt;-->
     <!-- Vectornav VN100t with Dongjae drone: [1.0,0.0,0.0,0.0,-1.0,0.0,0.0,0.0,-1.0]-->
     <!-- MPU9250 with CHK camera: [0.0,0.0,1.0,0.0,-1.0,0.0,1.0,0.0,0.0]-->
 
-    <node pkg="error_state_kalman_filter_ros" name="state_estimator_node" type="optitrack_state_estimator_node" output="screen">
+    <node pkg="error_state_kalman_filter_ros" name="state_estimator_node" type="apriltag_state_estimator_node" output="screen">
         <param name="topic_imu"          type="string" value="$(arg topic_imu)"/>
-        <param name="topic_mag"          type="string" value="$(arg topic_mag)"/>
-        <param name="topic_optitrack"    type="string" value="$(arg topic_optitrack)"/>
+        <param name="topic_apriltag"    type="string" value="$(arg topic_apriltag)"/>
 
         <param name="topic_nav_raw"      type="string" value="$(arg topic_nav_raw)"/>
         <param name="topic_nav_filtered" type="string" value="$(arg topic_nav_filtered)"/>
@@ -46,23 +44,30 @@
     
         <param name="noise_accel"        type="double" value="$(arg noise_accel)"/>
         <param name="noise_gyro"         type="double" value="$(arg noise_gyro)"/>
-        <param name="noise_mag"          type="double" value="$(arg noise_mag)"/>
         
+        <param name="get_bias_from_params" type="bool" value="$(arg get_bias_from_params)"/>
         <rosparam param="acc_bias"  subst_value="True"> $(arg acc_bias)  </rosparam>
         <rosparam param="gyro_bias" subst_value="True"> $(arg gyro_bias) </rosparam>
-        <rosparam param="mag_bias"  subst_value="True"> $(arg mag_bias)  </rosparam>
+        <rosparam param="noise_apriltag_position">[0.01, 0.01, 0.06]</rosparam>
+        <rosparam param="noise_apriltag_orientation">[0.02, 0.02, 0.02]</rosparam>
 
-        <param name="noise_optitrack_position"     type="double" value="$(arg noise_optitrack_position)"/>
-        <param name="noise_optitrack_orientation"  type="double" value="$(arg noise_optitrack_orientation)"/>
+        <!-- Added by KGC. T_CI the IMU to Camera Calibration -->
+        <rosparam param="T_CI"> [0.0045601, -0.00602225, -0.00951422, 0.9999894, 0.0010382, -0.001427, 0.0042417] </rosparam> <!--px, py, pz, qw, qx, qy, qz -->
 
-        <rosparam param="R_BI"  subst_value="True"> $(arg R_BI)  </rosparam>
+        <!-- Added by KGC. Additional params -->
+        <param name="apriltag_setting_filename" value="$(arg config_dir)/apriltag_settings.yaml"/>
+        <param name="ref_tag_id" value="0"/>
+
+        <!-- Added by KGC. For init buffer -->
+        <param name="initialization/N_init_samples" value="400"/>
+        <param name="initialization/N_acc_samples" value=""/>
     </node>
 
     <group if="$(eval arg('flag_visualizer_on') ==true)">
-        <node pkg="rviz" name="state_estimator_rviz" type="rviz" args="-d $(find state_estimator)/state_estimator.rviz"/>
+        <node pkg="rviz" name="state_estimator_rviz" type="rviz" args="-d $(arg config_dir)/visualizer/state_estimator.rviz"/>
 
         <node pkg="rqt_multiplot" name="state_estimator_multiplot" type="rqt_multiplot" output="screen">
-            <param name="multiplot-config" type="string" value="$(find state_estimator)/state_estimator_plot.xml"/>
+            <param name="multiplot-config" type="string" value="$(arg config_dir)/visualizer/state_estimator_plot.xml"/>
         </node>
     </group>
 

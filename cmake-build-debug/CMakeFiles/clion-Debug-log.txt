@@ -40,19 +40,11 @@ CMake Deprecation Warning at /usr/src/googletest/googletest/CMakeLists.txt:56 (c
 -- Using Python nosetests: /usr/bin/nosetests3
 -- catkin 0.8.10
 -- BUILD_SHARED_LIBS is on
-CMake Warning at /opt/ros/noetic/share/cmake_modules/cmake/Modules/FindEigen.cmake:62 (message):
-  The FindEigen.cmake Module in the cmake_modules package is deprecated.
-
-  Please use the FindEigen3.cmake Module provided with Eigen.  Change
-  instances of find_package(Eigen) to find_package(Eigen3).  Check the
-  FindEigen3.cmake Module for the resulting CMake variable names.
-
-Call Stack (most recent call first):
-  CMakeLists.txt:7 (find_package)
-
-
--- Eigen found (include: /usr/include/eigen3)
+Eigen : 3.3.7
+yaml libs : yaml-cpp::yaml-cpp
 -- Using these message generators: gencpp;geneus;genlisp;gennodejs;genpy
+Eigen_Include_dirs : /usr/include/eigen3
+Yaml include directory : 
 -- Configuring done (0.5s)
 -- Generating done (0.0s)
 -- Build files have been written to: /home/skykim0609/catkin_ws/src/error_state_kalman_filter_ros/cmake-build-debug

@@ -164,4 +164,9 @@ namespace geometry {
     Vec3 rotate_vec(const Vec4& q1, const Vec3& v){
         return q2r(q1) * v;
     }
-};
+
+    std::ostream& operator<<(std::ostream& os, const Tf& T){
+        os <<"q : "<<T.rot().transpose()<<", p : "<<T.trans().transpose();
+        return os;
+    }
+}//namespace geometry

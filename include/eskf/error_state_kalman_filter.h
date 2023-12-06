@@ -1,14 +1,16 @@
-#ifndef _ERROR_STATE_KALMAN_FILTER_H_
-#define _ERROR_STATE_KALMAN_FILTER_H_
+#ifndef ERROR_STATE_KALMAN_FILTER_H_
+#define ERROR_STATE_KALMAN_FILTER_H_
 
 #include <iostream>
 #include <memory>
 #include <limits>
+#include <map>
 #include <Eigen/Dense>
 
 #include "eskf/geometry_library.h"
 #include "eskf/low_pass_filter.h"
 #include "eskf/random_utils.h"
+#include "eskf/apriltag_info.h"
 
 // #define VERBOSE_STATE
 
@@ -53,9 +55,6 @@ public:
     struct NominalState;
     struct ErrorState;
 
-    struct Measurement;
-    struct Observation;
-
     struct ProcessNoise;
     struct MeasurementNoise;
 
@@ -75,13 +74,14 @@ private:
                    expmFMat& expmF);
     void calcH(const NominalState& X_nom, HMat& H) const;
     void calcH6(const NominalState& X_nom, HMat6& H) const;
-    RMat6 calcCovNI6(const Mat33& R_ct, const RMat6& Cov_ct) const;
+    [[nodiscard]] RMat6 calcCovNI6(const Mat33& R_ct, const RMat6& Cov_ct) const;
 
 public:
     ESKF();
     ~ESKF();
 
 public:
+    // Added by KGC
     void setInitBuffer(int N_init, double w_e, double w_r, int N_acc, const Mat33& Sigma_iw);
 
     void setRotationFromBodyToIMU(const Mat33& R_BI);
@@ -91,13 +91,20 @@ public:
 
     void setBias(double bias_ax, double bias_ay, double bias_az, double bias_gx, double bias_gy, double bias_gz);
 
-    void setIMUNoise(double noise_acc, double noise_gyro, double noise_mag);
+    void setIMUNoise(double noise_acc, double noise_gyro);
 
     void setObservationNoise(double noise_position, double noise_orientation);
 
+    void setApriltagWorldPoses(const ApriltagInfoArr& apriltag_world_poses);
+
+    // Added by KGC
+    void setRefTagId(int tag_id){
+        ref_tag_id_ = tag_id;
+    }
+
 public:
-    bool isInitialized() const;
-    bool isBiasInitialized() const;
+    [[nodiscard]] bool isInitialized() const;
+    [[nodiscard]] bool isBiasInitialized() const;
 
     // Added by KGC
     bool tryInitializeBias(const Vec3& am, const Vec3& wm, double t);
@@ -105,17 +112,15 @@ public:
     void predict(const Vec3& am, const Vec3& wm, double t_now); // by imu
     // void updateMagnetometer(const Vec3& p_observe, const Vec4& q_observe); // by magnetometer
     void updateOptitrack(const Vec3& p_observe, const Vec4& q_observe, double t_now); // by optitrack
-    void updateAprilTag(const geometry::Tf &T_tc, const RMat6 &Cov_ct, double t_now); // by Apriltag
+    void updateAprilTag(const ApriltagInfoArr &apriltag_detections, double t_now); // by Apriltag
 
     void updateGravity(const Vec3& am, double t_now);
-
-    void resetFilter(const Vec3& p_init, const Vec4& q_init); // other states go to zeros.
 
     FixedParameters getFixedParameters();
     void getFilteredStates(NominalState& x_nom_filtered);
     void getGyroLowPassFiltered(Vec3& filtered_gyro);
     void getAccLowPassFiltered(Vec3& filtered_acc);
-    void getCovariance(NominalState& x_nom_filtered);
+    void getCovariance(Mat1515& S);
 
     void showFilterStates();
 
@@ -375,25 +380,6 @@ public:
         };
     };
 
-    struct Measurement{
-        Vec3 acc;
-        Vec3 gyro;
-        Measurement(){
-            acc  = Vec3::Zero();
-            gyro = Vec3::Zero();
-        };
-        // When using measurement,
-    };
-
-    struct Observation{
-        Vec3 p_optitrack;
-        Vec4 q_optitrack;
-        Observation(){
-            p_optitrack = Vec3::Zero();
-            q_optitrack = Vec4::Zero(); q_optitrack(0) = 1.0;
-        };
-    };
-
     struct ProcessNoise{
         double sig_na; // acceleration measurement noise (0.0008)
         double sig_ng; // gyro measurement noise (0.000006)
@@ -573,15 +559,15 @@ public:
             return true;
         }
 
-        bool isInitializationReady() const{
+        [[nodiscard]] bool isInitializationReady() const{
             return N_imu_data > N_init_min_samples;
         }
 
-        Vec3 estimateGyroBias() const{
+        [[nodiscard]] Vec3 estimateGyroBias() const{
             return wm_dt_sum / dt_sum;
         }
 
-        Vec3 estimateAccBias(const Vec4& q_iw_nominal, const Vec3& g_w) const{
+        [[nodiscard]] Vec3 estimateAccBias(const Vec4& q_iw_nominal, const Vec3& g_w) const{
             double min_cost = std::numeric_limits<double>::max();
             const Vec3 dw_mean = Vec3::Zero();
             Vec3 am_mean = am_dt_sum / dt_sum;
@@ -593,7 +579,7 @@ public:
                 Vec4 q_iw = geometry::q1_mult_q2(q_iw_nominal, dq);
                 Vec3 g_i = geometry::rotate_vec(q_iw, g_w);
                 Vec3 ba = am_mean - g_i;
-                double cost = w_err * am_mean.squaredNorm() + w_rot * dq.squaredNorm();
+                double cost = w_err * ba.squaredNorm() + w_rot * dq.squaredNorm();
                 if(cost < min_cost){
                     min_cost = cost;
                     ba_best = ba;
@@ -612,8 +598,11 @@ private:
 
     NominalState X_nom_;
     ErrorState   dX_;
-    geometry::Tf T_xr_init_; // T_bw(0) for optitrack, T_ct(0) for apriltag
-    geometry::Tf T_rx_init_; // T_wb(0) for optitrack, T_tc(0) for apriltag
+    std::map<int, geometry::Tf> T_xr_init_; // T_bw(0) for optitrack, T_ct(0) for apriltag
+    std::map<int, geometry::Tf> T_rx_init_; // T_wb(0) for optitrack, T_tc(0) for apriltag
+    int ref_tag_id_; // recommended : The better observed(closely observed) tag. 0 for optitrack
+    ApriltagInfoArr apriltag_world_poses_;
+    ApriltagInfoArr apriltag_ref_poses_; // pose w.r.t. ref tag
     CovarianceMat P_;
 
     ProcessNoise process_noise_;

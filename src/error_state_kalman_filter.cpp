@@ -2,10 +2,10 @@
 
 // Initialize Static member variables
 Mat33 ESKF::I33 = Mat33::Identity();
-Mat44 ESKF::I44 = Mat44::Identity();
+//Mat44 ESKF::I44 = Mat44::Identity();
 Mat33 ESKF::O33 = Mat33::Zero();
-Mat44 ESKF::O44 = Mat44::Zero();
-Mat34 ESKF::O34 = Mat34::Zero();
+//Mat44 ESKF::O44 = Mat44::Zero();
+//Mat34 ESKF::O34 = Mat34::Zero();
 Mat43 ESKF::O43 = Mat43::Zero();
 Mat1515 ESKF::I1515 = Mat1515::Identity();
 
@@ -36,9 +36,7 @@ ESKF::ESKF()
     lpf_acc_  = new LowPassFilter<Vec3>(cutoff_frequency, sampling_rate);
 
     std::cout << "Error State Kalman Filter - constructed\n";
-};
-
-
+}
 
 ESKF::~ESKF(){
     std::cout << "Error State Kalman Filter - destructed\n";
@@ -61,7 +59,6 @@ void ESKF::setRotationFromBodyToIMU(const Mat33& R_BI)
 
     std::cout << "ESKF::setRotationFromBodyToIMU() with a 3D rotation matrix input:\n";
     std::cout << R_BI << std::endl;
-
 };
 
 
@@ -105,7 +102,7 @@ void ESKF::setBias(double bias_ax, double bias_ay, double bias_az, double bias_g
     isBiasInitialized_ = true;
 };
 
-void ESKF::setIMUNoise(double noise_acc, double noise_gyro, double noise_mag){
+void ESKF::setIMUNoise(double noise_acc, double noise_gyro) {
     if(isInitialized_)
         throw std::runtime_error("setIMUNoise() can only be executed when 'isInitialized_ == false'\n");
 
@@ -115,6 +112,7 @@ void ESKF::setIMUNoise(double noise_acc, double noise_gyro, double noise_mag){
     std::cout << "   Set noise_acc : " << noise_acc << "\n";
     std::cout << "   Set noise_gyro: " << noise_gyro << "\n";
 };
+
 void ESKF::setObservationNoise(double noise_position, double noise_orientation){
     if(isInitialized_)
         throw std::runtime_error("setObservationNoise() can only be executed when 'isInitialized_ == false'\n");
@@ -126,11 +124,27 @@ void ESKF::setObservationNoise(double noise_position, double noise_orientation){
     std::cout << "   Set noise_orientation: " << noise_orientation << "\n";
 };
 
-bool ESKF::isInitialized() const{
+void ESKF::setApriltagWorldPoses(const ApriltagInfoArr &apriltag_world_poses) {
+    apriltag_world_poses_ = apriltag_world_poses;
+    geometry::Tf T_wr; // ref pose
+    if(!apriltag_world_poses_.getTxt(ref_tag_id_, T_wr)){
+        throw std::runtime_error("Apriltag World Pose should contain ref_tag_id");
+    }
+    geometry::Tf T_rw = T_wr.Inverse();
+    for(const auto& tag_info : apriltag_world_poses_.tag_infos){
+        if(tag_info.id == ref_tag_id_) continue; // no need for ref
+        else{
+            geometry::Tf T_rt = T_rw.mult(tag_info.T_xt);
+            apriltag_ref_poses_.push_back(tag_info.id, T_rt);
+        }
+    }
+}
+
+[[nodiscard]] bool ESKF::isInitialized() const{
     return isInitialized_;
 };
 
-bool ESKF::isBiasInitialized() const {
+[[nodiscard]] bool ESKF::isBiasInitialized() const {
     return isBiasInitialized_;
 }
 
@@ -209,9 +223,10 @@ void ESKF::updateOptitrack(const Vec3& p_observe, const Vec4& q_observe, double 
         X_nom_.setPosition(Vec3::Zero());
         X_nom_.setQuaternion(Vec4(1.0, 0.0, 0.0, 0.0));
         X_nom_.show();
-        T_rx_init_ = geometry::Tf(p_observe, q_observe);;
-        T_xr_init_ = T_rx_init_.Inverse();
-        std::cout << " Initial transform T_WB(0) : \n" << T_rx_init_.trans().transpose() << ", " << T_rx_init_.rot().transpose() << "\n";
+        geometry::Tf T_rx_init(p_observe, q_observe);
+        T_rx_init_.emplace(0, T_rx_init);
+        T_xr_init_.emplace(0, T_rx_init.Inverse());
+        std::cout << " Initial transform T_WB(0) : \n" << T_rx_init << "\n";
         return;
     }
 
@@ -221,8 +236,9 @@ void ESKF::updateOptitrack(const Vec3& p_observe, const Vec4& q_observe, double 
 
 //    p_obs = fixed_param_.R_IB*p_observe;
 //    q_obs = geometry::q1_mult_q2(geometry::q1_mult_q2(fixed_param_.q_IB, q_observe), fixed_param_.q_BI); // modified by KGC ( error in original code)
-    Vec4 q_IBB0W = geometry::q1_mult_q2(fixed_param_.q_IB, T_xr_init_.rot()); // T_xr_init_ = T_bw(0)
-    p_obs = fixed_param_.R_IB * T_xr_init_.trans() + geometry::rotate_vec(q_IBB0W, p_observe); //
+    const geometry::Tf& T_xr_init = T_xr_init_.at(0);
+    Vec4 q_IBB0W = geometry::q1_mult_q2(fixed_param_.q_IB, T_xr_init.rot()); // T_xr_init_ = T_bw(0)
+    p_obs = fixed_param_.R_IB * T_xr_init.trans() + geometry::rotate_vec(q_IBB0W, p_observe); //
     q_obs = geometry::q1_mult_q2(q_IBB0W, geometry::q1_mult_q2(q_observe, fixed_param_.q_BI)); // q_IB * q_BW(0) * q_WB(k) * q_BI
 
     if(!isBiasInitialized_){
@@ -272,11 +288,14 @@ void ESKF::updateOptitrack(const Vec3& p_observe, const Vec4& q_observe, double 
 #endif
 };
 
-void ESKF::updateAprilTag(const geometry::Tf &T_tc, const RMat6 &Cov_ct, double t_now) {
+void ESKF::updateAprilTag(const ApriltagInfoArr &apriltag_detections, double t_now) {
 #ifdef VERBOSE_STATE
     std::cout <<"Update...\n";
 #endif
     if(!isInitialized_) { // bias is initialized at this point usually.
+        ApriltagInfo ref_tag;
+        bool found_ref = apriltag_detections.find(ref_tag_id_, ref_tag);
+        if(!found_ref) return; // should first see ref_tag_id_ since it would be the better observable tag
         isInitialized_ = true;
         t_init_ = t_now;
         std::cout << "Initial Pose from AprilTag obtained.\n";
@@ -284,51 +303,67 @@ void ESKF::updateAprilTag(const geometry::Tf &T_tc, const RMat6 &Cov_ct, double 
         X_nom_.setQuaternion(Vec4(1.0, 0.0, 0.0, 0.0));
         X_nom_.setVelocity(Vec3(0.0, 0.0, 0.0));
         X_nom_.show();
-        T_rx_init_ = T_tc;
-        T_xr_init_ = T_tc.Inverse(); // T_ct(0)
-        std::cout << " Initial pose of tag from camera T_ct(0) : \n" << T_xr_init_.trans().transpose() << ", " << T_xr_init_.rot().transpose() << "\n";
+        geometry::Tf T_xr_init = ref_tag.T_xt; // T_ct0(0)
+        geometry::Tf T_rx_init = T_xr_init.Inverse(); // T_ct0(0)
+        std::cout << " Initial pose of tag" << ref_tag_id_ <<"from camera T_ct(0) : \n" << T_xr_init << "\n";
+        for(const auto& tag_ref_pose : apriltag_ref_poses_.tag_infos){
+            int id =tag_ref_pose.id;
+            geometry::Tf T_xr = T_xr_init.mult(tag_ref_pose.T_xt); // T_ct0 * T_t0t1
+            geometry::Tf T_rx = T_xr.Inverse(); // T_t1 c
+            T_xr_init_.emplace(id, T_xr);
+            T_rx_init_.emplace(id, T_rx);
+        }
         return;
     }
+    for(const auto& det : apriltag_detections.tag_infos){
+        int id = det.id;
+        geometry::Tf T_rt;
+        if(id == ref_tag_id_){
+            T_rt = geometry::Tf::Identity();
+        }
+        else {
+            if(!apriltag_ref_poses_.getTxt(id, T_rt)) continue;
+        }
+        geometry::Tf T_ct = det.T_xt;
+        geometry::Tf T_tc = T_ct.Inverse();
+        geometry::Tf T_xr_init = T_xr_init_.at(id);
+        // transform to nominal_to_imu transform
+        geometry::Tf T_NI = fixed_param_.T_IC.mult(T_xr_init).mult(T_tc).mult(fixed_param_.T_CI); // T_IC(0) * T_CT(0) * T_TC(k) * T_CI(k)
+        if(!isBiasInitialized_){ // won't happen since !isInitialized contains !isBiasInitialized
+            X_nom_.setPosition(T_NI.trans());
+            X_nom_.setQuaternion(T_NI.rot());
+            t_prev_ = t_now;
+            return;
+        }
+        Vec6 y = T_NI.getVec6Form();
+        // calulate linearized observation matrix
+        HMat6 H;
+        calcH6(X_nom_, H);
+        RMat6 Cov_NI = calcCovNI6(T_ct.rotmat(), det.S);
 
-    // transform to nominal_to_imu transform
-    geometry::Tf T_NI = fixed_param_.T_IC.mult(T_xr_init_).mult(T_tc).mult(fixed_param_.T_CI); // T_IC(0) * T_CT(0) * T_TC(k) * T_CI(k)
+        // Kalman gain
+        KMat6 K = P_ * H.transpose() * (H * P_ * H.transpose() + Cov_NI).inverse();
+        // recovered nominal state + error state
+        Vec6 y_hat;
+        y_hat.head<3>() = X_nom_.p + dX_.dp;
+        y_hat.tail<3>() = geometry::q2rotvec(geometry::q1_mult_q2(X_nom_.q, geometry::rotvec2q(dX_.dth)));
 
-    if(!isBiasInitialized_){ // won't happen since !isInitialized contains !isBiasInitialized
-        X_nom_.setPosition(T_NI.trans());
-        X_nom_.setQuaternion(T_NI.rot());
-        t_prev_ = t_now;
-        t_init_ = t_now;
-        return;
+        ErrorStateVec dX_addition_vec  =  K*(y-y_hat);
+        ErrorStateVec dX_update_vec = dX_.getVectorform() + dX_addition_vec;
+
+        ErrorState dX_update;
+        dX_update.replace(dX_update_vec);
+
+        // Injection of the observed error into the nominal
+        X_nom_.injectErrorState(dX_update);
+
+        // Reset dX
+        dX_.replace(dX_addition_vec);
+
+        // Replace Error Covariance Matrix
+        CovarianceMat P_update = (I1515-K*H)*P_*(I1515-K*H).transpose() + K * Cov_NI * K.transpose();
+        P_ = P_update;
     }
-
-    Vec6 y = T_NI.getVec6Form();
-    // calulate linearized observation matrix
-    HMat6 H;
-    calcH6(X_nom_, H);
-    RMat6 Cov_NI = calcCovNI6(T_tc.rotmat().transpose(), Cov_ct);
-
-    // Kalman gain
-    KMat6 K = P_ * H.transpose() * (H * P_ * H.transpose() + Cov_NI).inverse();
-    // recovered nominal state + error state
-    Vec6 y_hat;
-    y_hat.head<3>() = X_nom_.p + dX_.dp;
-    y_hat.tail<3>() = geometry::q2rotvec(geometry::q1_mult_q2(X_nom_.q, geometry::rotvec2q(dX_.dth)));
-
-    ErrorStateVec dX_addition_vec  =  K*(y-y_hat);
-    ErrorStateVec dX_update_vec = dX_.getVectorform() + dX_addition_vec;
-
-    ErrorState dX_update;
-    dX_update.replace(dX_update_vec);
-
-    // Injection of the observed error into the nominal
-    X_nom_.injectErrorState(dX_update);
-
-    // Reset dX
-    dX_.replace(dX_addition_vec);
-
-    // Replace Error Covariance Matrix
-    CovarianceMat P_update = (I1515-K*H)*P_*(I1515-K*H).transpose() + K * Cov_NI * K.transpose();
-    P_ = P_update;
 #ifdef VERBOSE_STATE
     X_nom_.show();
 #endif
@@ -344,7 +379,7 @@ void ESKF::updateGravity(const Vec3& am, double t_now){
     // double ay = am(1);
     // double az = am(2);
 
-    double a_mag = am.norm();
+    //double a_mag = am.norm();
 
     // Vec2 rp_obs;
     // rp_obs(0) = atan2(ay,az);
@@ -369,10 +404,6 @@ void ESKF::updateGravity(const Vec3& am, double t_now){
 
 };
 
-void ESKF::resetFilter(const Vec3& p_init, const Vec4& q_init){
-
-};
-
 ESKF::FixedParameters ESKF::getFixedParameters(){
     return fixed_param_;
 };
@@ -388,6 +419,10 @@ void ESKF::getGyroLowPassFiltered(Vec3& filtered_gyro){
 void ESKF::getAccLowPassFiltered(Vec3& filtered_acc){
     filtered_acc = this->lpf_acc_->getFilteredValue();
 };
+
+void ESKF::getCovariance(Mat1515 &S) {
+    S = this->P_;
+}
 
 void ESKF::showFilterStates(){
     std::cout << "---- Current estimation ----\n";
@@ -406,14 +441,15 @@ void ESKF::showFilterStates(){
 // Added by KGC
 ESKF::NominalState ESKF::getWorldFrameState(const geometry::Tf &T_wr, const std::string& mode) const {
     geometry::Tf T_NI(X_nom_.q, X_nom_.p);
-    geometry::Tf T_XI;
+    geometry::Tf T_XI, T_rx_init;
     if(mode == "optitrack"){
         T_XI = geometry::Tf(fixed_param_.q_BI, Vec3::Zero());
     }
     else{
         T_XI = geometry::Tf(fixed_param_.T_CI);
     }
-    geometry::Tf T_WI0 = T_wr.mult(T_rx_init_).mult(T_XI);
+    T_rx_init = T_rx_init_.at(ref_tag_id_);
+    geometry::Tf T_WI0 = T_wr.mult(T_rx_init).mult(T_XI);
     geometry::Tf T_WI = T_WI0.mult(T_NI);
     ESKF::NominalState X_wi;
     X_wi.setPosition(T_WI.trans());
@@ -584,10 +620,12 @@ void ESKF::calcH6(const ESKF::NominalState &X_nom, HMat6 &H) const{
     O33, O33, I33, O33, O33;
 }
 
-RMat6 ESKF::calcCovNI6(const Mat33 &R_ct, const RMat6 &Cov_ct) const {
+[[nodiscard]] RMat6 ESKF::calcCovNI6(const Mat33 &R_ct, const RMat6 &Cov_ct) const {
     RMat6 M_left;
     M_left.setZero();
-    Mat33 R_i0t = fixed_param_.T_IC.rotmat() * T_xr_init_.rotmat();  //  q_ic * q_ct(0)00
+
+    geometry::Tf T_xr_init = T_xr_init_.at(ref_tag_id_);
+    Mat33 R_i0t = fixed_param_.T_IC.rotmat() * T_xr_init.rotmat();  //  q_ic * q_ct(0)00
     Mat33 R_i0tct = R_i0t * R_ct;
     M_left.block<3, 3>(0, 0) = R_i0tct;
     M_left.block<3, 3>(3, 3) = R_i0t;

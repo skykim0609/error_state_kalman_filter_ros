@@ -14,6 +14,7 @@ typedef Matrix<double,3,3> Mat33;
 typedef Matrix<double,4,4> Mat44;
 typedef Matrix<double,3,4> Mat34;
 typedef Matrix<double,4,3> Mat43;
+typedef Matrix<double,6,6> Mat66;
 typedef Matrix<double,15,15> Mat1515;
 
 namespace geometry {
@@ -43,8 +44,17 @@ namespace geometry {
             q << 1.0, 0.0, 0.0, 0.0;
             p.setZero();
         }
-        Tf(const Vec4& q_in, const Vec3& p_in):q(q_in), p(p_in){}
-        Tf(const Vec3& p_in, const Vec4& q_in):q(q_in), p(p_in){}
+        Tf(const std::array<double, 4>& q_in, const std::array<double, 3>& p_in){
+            q << q_in[0], q_in[1], q_in[2], q_in[3];
+            q = q / q.norm();
+            p << p_in[0], p_in[1], p_in[2];
+        }
+        Tf(const Vec4& q_in, const Vec3& p_in):q(q_in), p(p_in){
+            q = q / q.norm();
+        }
+        Tf(const Vec3& p_in, const Vec4& q_in):q(q_in), p(p_in){
+            q = q / q.norm();
+        }
         Tf Inverse() const{
             const Vec4 q_inv = q_conj(q);
             const Vec3 p_inv = -rotate_vec(q_inv, p);
@@ -77,8 +87,10 @@ namespace geometry {
             pw.tail<3>() = w;
             return pw;
         }
+        friend std::ostream& operator<<(std::ostream& os, const Tf& T);
     };
 };
 
+//std::ostream& operator<<(std::ostream& os, const geometry::Tf& T);
 
 #endif

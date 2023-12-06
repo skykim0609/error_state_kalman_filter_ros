@@ -2,19 +2,22 @@
 // Created by skykim0609 on 23. 11. 15.
 //
 #include "eskf/apriltag_state_estimator_ros.h"
+#include "eskf/ros_utils.h"
 
 ApriltagStateEstimatorRos::ApriltagStateEstimatorRos(ros::NodeHandle &nh): nh_(nh), verbose_all_estimation_(false) {
     ROS_INFO_STREAM("ApriltagStateEstimatorRos - starts");
 
-    // get ros parameters
     this->getParameters();
+
+    // get Apriltag info
+    this->getAprilTagInfo(apriltag_setting_filename);
 
     ROS_INFO_STREAM("ApriltagStateEstimatorRos - ROS parameters are successfully got.\n");
 
     // Subscribing
     sub_imu_       = nh_.subscribe<sensor_msgs::Imu>
             (topicname_imu_, 1, &ApriltagStateEstimatorRos::callbackIMU, this);
-    sub_Apriltag_ = nh_.subscribe<apriltag_ros::AprilTagDetection>
+    sub_Apriltag_ = nh_.subscribe<apriltag_ros::AprilTagDetectionArray>
             (topicname_Apriltag_, 1, &ApriltagStateEstimatorRos::callbackApriltag, this);
 
     // Publishing 
@@ -38,21 +41,33 @@ ApriltagStateEstimatorRos::ApriltagStateEstimatorRos(ros::NodeHandle &nh): nh_(n
 
     // Set parameters
     if(get_bias_from_param_) filter_->setBias(acc_bias_[0], acc_bias_[1], acc_bias_[2], gyro_bias_[0], gyro_bias_[1], gyro_bias_[2]);
-    filter_->setIMUNoise(noise_std_acc_, noise_std_gyro_, 0.0);
-    filter_->setObservationNoise(noise_Apriltag_position_, noise_Apriltag_orientation_);
+    filter_->setIMUNoise(noise_std_acc_, noise_std_gyro_);
+    //filter_->setObservationNoise(noise_Apriltag_position_, noise_Apriltag_orientation_); // Actually does nothing
+    Eigen::DiagonalMatrix<double, 6> D_ct;
+
+    Vec3 np2, no2;
+    for(int i=0; i<3; ++i){
+        np2(i) = POW2(noise_Apriltag_position_[i]);
+        no2(i) = POW2(noise_Apriltag_orientation_[i]);
+    }
+    D_ct.diagonal() << np2, no2;
+    Cov_ct = D_ct.toDenseMatrix();
+    filter_->setApriltagWorldPoses(apriltag_world_poses);
+    filter_->setRefTagId(ref_tag_id_);
+
+    Mat33 S_init;
+    Eigen::DiagonalMatrix<double, 3> D_init;
+    double var_samples = POW2(stdv_samples);
+    D_init.diagonal() << var_samples, var_samples, var_samples;
+    S_init = D_init.toDenseMatrix();
+    filter_->setInitBuffer(N_init, w_err, w_rot, N_acc, S_init);
 
     Vec3 p_CI;
     Vec4 q_CI;
     for(int i = 0; i < 3; ++i) p_CI(i) = T_CI_vec_.at(i);
-    for(int i = 3; i < 7; ++i) q_CI(i) = T_CI_vec_.at(i);
+    for(int i = 3; i < 7; ++i) q_CI(i-3) = T_CI_vec_.at(i);
     geometry::Tf T_CI(q_CI, p_CI);
     filter_->setTransformFromCameraToIMU(T_CI);
-
-    Vec3 p_WT;
-    Vec4 q_WT;
-    for(int i = 0; i < 3; ++i) p_WT(i) = T_WT_vec_.at(i);
-    for(int i = 3; i < 7; ++i) q_WT(i) = T_WT_vec_.at(i);
-    T_WT_ = {p_WT, q_WT};
 
     timestamp_last_apriltag_ = 0.0f;
     timestamp_last_imu_ = 0.0f;
@@ -61,73 +76,61 @@ ApriltagStateEstimatorRos::ApriltagStateEstimatorRos(ros::NodeHandle &nh): nh_(n
     this->run();
 }
 
+void ApriltagStateEstimatorRos::getAprilTagInfo(const std::string &setting_filename) {
+    YAML::Node config = YAML::LoadFile(setting_filename);
+    for(const YAML::detail::iterator_value& item : config["tags"]){
+        auto p_arr = item["position"].as<std::array<double, 3>>();
+        auto q_arr = item["orientation"].as<std::array<double, 4>>();
+        int id = item["id"].as<int>();
+        geometry::Tf Twt(q_arr, p_arr);
+        apriltag_world_poses.push_back(id, Twt);
+        std::cout<<"Got Apriltag Information "<<id<<", pose : "<<Twt<<"\n";
+    }
+}
+
 void ApriltagStateEstimatorRos::getParameters() {
 // get parameters
     // sub param names
-    if(!ros::param::has("~topic_imu")) throw std::runtime_error("ApriltagStateEstimatorRos - no 'topic_imu' is set. terminate program.\n");
-    ros::param::get("~topic_imu", topicname_imu_);
-
-    if(!ros::param::has("~topic_apriltag")) throw std::runtime_error("ApriltagStateEstimatorRos - no 'topic_Apriltag' is set. terminate program.\n");
-    ros::param::get("~topic_Apriltag", topicname_Apriltag_);
+    ROSUtils::checkAndLoad<std::string>("topic_imu", topicname_imu_);
+    ROSUtils::checkAndLoad<std::string>("topic_apriltag", topicname_Apriltag_);
 
     // pub param names
-    if(!ros::param::has("~topic_nav_filtered")) throw std::runtime_error("ApriltagStateEstimatorRos - no 'topic_nav_filtered' is set. terminate program.\n");
-    ros::param::get("~topic_nav_filtered", topicname_nav_filtered_);
+    ROSUtils::checkAndLoad<std::string>("topic_nav_filtered", topicname_nav_filtered_);
     topicname_nav_filtered_lpf_ = topicname_nav_filtered_ + "/lpf";
+    ROSUtils::checkAndLoad<std::string>("topic_nav_raw", topicname_nav_raw_);
+    ROSUtils::checkAndLoad<std::string>("topic_nav_filtered", topicname_nav_filtered_);
 
-    if(!ros::param::has("~topic_nav_raw")) throw std::runtime_error("ApriltagStateEstimatorRos - no 'topic_nav_raw' is set. terminate program.\n");
-    ros::param::get("~topic_nav_raw", topicname_nav_raw_);
-
-    if(!ros::param::has("~verbose_all_estimation")) throw std::runtime_error("ApriltagStateEstimatorRos - no 'verbose_all_estimation_' is set. terminate program.\n");
-    ros::param::get("~verbose_all_estimation", verbose_all_estimation_);
-
+    //verbosity
+    ROSUtils::checkAndLoad<bool>("verbose_all_estimation", verbose_all_estimation_);
     ROS_INFO_STREAM("Verbose all estimation: " << (verbose_all_estimation_ ? "true" : "false") );
 
-    if(!ros::param::has("~noise_accel"))
-        throw std::runtime_error("there is no 'noise_accel'. ");
-    if(!ros::param::has("~noise_gyro"))
-        throw std::runtime_error("there is no 'noise_gyro'. ");
+    //noise params
+    ROSUtils::checkAndLoad<double>("noise_accel", noise_std_acc_);
+    ROSUtils::checkAndLoad<double>("noise_gyro", noise_std_gyro_);
+    ROSUtils::checkVectorSizeAndLoad<double>("noise_apriltag_position", noise_Apriltag_position_, 3);
+    ROSUtils::checkVectorSizeAndLoad<double>("noise_apriltag_orientation", noise_Apriltag_orientation_, 3);
 
-    if(!ros::param::has("~noise_Apriltag_position"))
-        throw std::runtime_error("there is no 'noise_Apriltag_position'.");
-    if(!ros::param::has("~noise_Apriltag_orientation"))
-        throw std::runtime_error("there is no 'noise_Apriltag_orientation'.");
-
-    if(!ros::param::has("~q_BI"))
-        throw std::runtime_error("there is no 'q_BI'. ");
+    // Added by KGC
+    ROSUtils::checkVectorSizeAndLoad<double>("T_CI", T_CI_vec_, 7);
+    ROSUtils::checkAndLoad<std::string>("apriltag_setting_filename", apriltag_setting_filename);
+    ROSUtils::checkAndLoad<int>("ref_tag_id", ref_tag_id_);
 
     nh_.param("get_bias_from_params", get_bias_from_param_, false);
     if(get_bias_from_param_) {
         ROS_INFO("Get Bias From Param = True. Loading values from rosparam server");
-        if(!ros::param::has("~acc_bias"))
-            throw std::runtime_error("there is no 'acc_bias'. in param server");
-        if(!ros::param::has("~gyro_bias"))
-            throw std::runtime_error("there is no 'gyro_bias'. in param server");
-        nh_.param("acc_bias", acc_bias_, std::vector<double>());
-        nh_.param("gyro_bias", gyro_bias_, std::vector<double>());
+
+        ROSUtils::checkVectorSizeAndLoad<double>("acc_bias", acc_bias_, 3);
+        ROSUtils::checkVectorSizeAndLoad<double>("gyro_bias", gyro_bias_, 3);
     }
     else{
         ROS_INFO("Get Bias From Param = False. Bias will be estimated assuming that the platform is standing still for few seconds");
     }
-
-    if(acc_bias_.size() != 3)
-        throw std::runtime_error("'acc_bias_.size() != 3. acc_bias_.size() should be 3.");
-    if(gyro_bias_.size() != 3)
-        throw std::runtime_error("'gyro_bias_.size() != 3. gyro_bias_.size() should be 3.");
-
-    nh_.param("T_CI", T_CI_vec_, std::vector<double>());
-    if(T_CI_vec_.size() != 7)
-        throw std::runtime_error("'T_CI_vec_.size() != 7. T_CI_vec_.size() should be 7 (p, q).");
-
-    nh_.param("T_WT", T_WT_vec_, std::vector<double>());
-    if(T_WT_vec_.size() != 7)
-        throw std::runtime_error("'T_WT_vec_.size() != 7. T_WT_vec_.size() should be 7 (p, q).");
-
-    ros::param::get("~noise_accel", noise_std_acc_);
-    ros::param::get("~noise_gyro",  noise_std_gyro_);
-
-    ros::param::get("~noise_Apriltag_position",    noise_Apriltag_position_);
-    ros::param::get("~noise_Apriltag_orientation", noise_Apriltag_orientation_);
+    // Added by KGC. Init Buffer initialization
+    ROSUtils::checkAndLoad<int>("initialization/N_init_samples", N_init);
+    ROSUtils::checkAndLoad<int>("initialization/N_acc_samples", N_acc);
+    ROSUtils::checkAndLoad<double>("initialization/w_err", w_err);
+    ROSUtils::checkAndLoad<double>("initialization/w_rot", w_rot);
+    ROSUtils::checkAndLoad<double>("initialization/stdv_samples", stdv_samples);
 }
 
 void ApriltagStateEstimatorRos::run(){
@@ -153,9 +156,27 @@ void ApriltagStateEstimatorRos::run(){
     }
 };
 
-void ApriltagStateEstimatorRos::callbackApriltag(const apriltag_ros::AprilTagDetectionConstPtr &msg) {
-    T_ct_current_ = msg->pose;
-    double t_now = T_ct_current_.header.stamp.toSec();
+void ApriltagStateEstimatorRos::callbackApriltag(const apriltag_ros::AprilTagDetectionArrayConstPtr &msg) {
+    if(msg->detections.empty()) {
+        ROS_WARN_STREAM("callbackApriltag called, but empty detection message at time "<< msg->header.stamp);
+        return;
+    }
+    double t_now = msg->header.stamp.toSec();
+    T_ct_current_.clear();
+    ApriltagInfoArr apriltag_detections;
+    for(const auto& det : msg->detections){
+        const auto& pose = det.pose.pose.pose;
+        geometry_msgs::PoseStamped pose_stamped;
+        pose_stamped.header = msg->header;
+        pose_stamped.pose = pose;
+        int id = det.id[0];
+        T_ct_current_.emplace(id, pose_stamped);
+        const auto& q_r = pose.orientation;
+        const auto& p_r = pose.position;
+        Vec4 q_ct(q_r.w, q_r.x, q_r.y, q_r.z);
+        Vec3 p_ct(p_r.x, p_r.y, p_r.z);
+        apriltag_detections.push_back(id, geometry::Tf(q_ct, p_ct), Cov_ct);
+    }
 
     std_msgs::Time msg_time;
     msg_time.data = ros::Time(t_now-timestamp_last_apriltag_);
@@ -167,31 +188,8 @@ void ApriltagStateEstimatorRos::callbackApriltag(const apriltag_ros::AprilTagDet
     }
     timestamp_last_apriltag_ = t_now;
 
-    Vec3 p_ct;
-    Vec4 q_ct;
-    p_ct << T_ct_current_.pose.pose.position.x,
-            T_ct_current_.pose.pose.position.y,
-            T_ct_current_.pose.pose.position.z;
-
-    q_ct << T_ct_current_.pose.pose.orientation.w,
-            T_ct_current_.pose.pose.orientation.x,
-            T_ct_current_.pose.pose.orientation.y,
-            T_ct_current_.pose.pose.orientation.z;
-    geometry::Tf T_ct(q_ct, p_ct);
-    geometry::Tf T_tc = T_ct.Inverse();
-
-    RMat6 Cov_ct;
-    const boost::array<double, 36>& cov_vec = T_ct_current_.pose.covariance;
-    int idx = 0;
-    for(int i = 0; i< 6; ++i){
-        for(int j = 0; j < 6; ++j){
-            Cov_ct(i, j) = cov_vec.at(idx);
-            ++idx;
-        }
-    }
-
     //update filter
-    filter_->updateAprilTag(T_tc, Cov_ct, t_now);
+    filter_->updateAprilTag(apriltag_detections, t_now);
 
     // Fill the nav message
     nav_raw_current_.header.frame_id = "map";
@@ -199,7 +197,10 @@ void ApriltagStateEstimatorRos::callbackApriltag(const apriltag_ros::AprilTagDet
     nav_raw_current_.header.stamp = ros::Time::now();
 
     //Position and orientation
-    auto X_nom_w = filter_->getWorldFrameState(T_WT_, "apriltag");
+    geometry::Tf T_WT_; apriltag_world_poses.getTxt(ref_tag_id_, T_WT_);
+    ESKF::NominalState X_nom_w = filter_->getWorldFrameState(T_WT_, "apriltag");
+    Mat1515 P;
+    filter_->getCovariance(P);
 
     nav_raw_current_.pose.pose.position.x = X_nom_w.p(0);
     nav_raw_current_.pose.pose.position.y = X_nom_w.p(1);
@@ -209,6 +210,19 @@ void ApriltagStateEstimatorRos::callbackApriltag(const apriltag_ros::AprilTagDet
     nav_raw_current_.pose.pose.orientation.x = X_nom_w.q(1);
     nav_raw_current_.pose.pose.orientation.y = X_nom_w.q(2);
     nav_raw_current_.pose.pose.orientation.z = X_nom_w.q(3);
+
+    Mat33 P_pp = P.block<3, 3>(0, 0);
+    Mat33 P_qq = P.block<3, 3>(6, 6);
+    Mat33 P_pq = P.block<3, 3>(0, 6);
+    Mat66 P_pose = Mat66::Identity();
+    P_pose << P_pp, P_pq, P_pq.transpose(), P_qq;
+    int k = 0;
+    for(int i = 0; i < 6; ++i){
+        for(int j = 0; j < 6; ++j){
+            nav_raw_current_.pose.covariance[k] = P_pose(i, j);
+            ++k;
+        }
+    }
 
     // Velocities
     nav_raw_current_.twist.twist.linear.x = X_nom_w.v(0);
@@ -264,7 +278,8 @@ void ApriltagStateEstimatorRos::callbackIMU(const sensor_msgs::ImuConstPtr &msg)
         ++nav_filtered_current_.header.seq;
         nav_filtered_current_.header.stamp = ros::Time::now();
 
-        // Position and orientation. In {w} frame
+        // Position and orientation. In world frame
+        geometry::Tf T_WT_; apriltag_world_poses.getTxt(ref_tag_id_, T_WT_);
         ESKF::NominalState X_nom_w = filter_->getWorldFrameState(T_WT_, "apriltag");
 
         //X_nom.p = filter_->getFixedParameters().R_BI*X_nom.p;

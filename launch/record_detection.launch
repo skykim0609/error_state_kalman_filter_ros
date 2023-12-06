@@ -1,0 +1,19 @@
+<launch>
+    <arg name="dataset_dir" default="/home/skykim0609/Desktop/Projects/Dabin_apriltag_ekf_related/ekf_dataset_1115"/>
+    <arg name="dataset_name" default="seq2"/>
+
+    <node pkg="rosbag" name="record" type="record" output="screen" args="-O $(arg dataset_dir)/$(arg dataset_name)_detection.bag /camera/imu
+        /camera/infra1/camera_info
+        /camera/infra1/image_rect_raw
+        /clicked_point
+        /clock
+        /initialpose
+        /move_base_simple/goal
+        /optitrack/dbk_drone/poseStamped
+        /tag_detections
+        /tag_detections_image
+        /tf
+        /tf_static"/>
+
+
+</launch>

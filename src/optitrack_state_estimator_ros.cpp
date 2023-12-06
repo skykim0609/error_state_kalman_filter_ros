@@ -1,4 +1,5 @@
 #include "eskf/optitrack_state_estimator_ros.h"
+#include "eskf/ros_utils.h"
 
 OptitrackStateEstimatorRos::OptitrackStateEstimatorRos(ros::NodeHandle& nh)
 : nh_(nh), verbose_all_estimation_(false)
@@ -33,14 +34,22 @@ OptitrackStateEstimatorRos::OptitrackStateEstimatorRos(ros::NodeHandle& nh)
         (topicname_imu_dt_, 1);
     pub_optitrack_dt_ = nh_.advertise<std_msgs::Time>
         (topicname_optitrack_dt_, 1);
-        
+
     // Filter generation
     filter_ = std::make_unique<FilterType>();
 
     // Set parameters
     if(get_bias_from_param_) filter_->setBias(acc_bias_[0], acc_bias_[1], acc_bias_[2], gyro_bias_[0], gyro_bias_[1], gyro_bias_[2]);
-    filter_->setIMUNoise(noise_std_acc_, noise_std_gyro_, noise_std_mag_);
+    filter_->setIMUNoise(noise_std_acc_, noise_std_gyro_);
     filter_->setObservationNoise(noise_optitrack_position_, noise_optitrack_orientation_);
+    filter_->setRefTagId(0);
+
+    Mat33 S_init;
+    Eigen::DiagonalMatrix<double, 3> D_init;
+    double var_samples = POW2(stdv_samples);
+    D_init.diagonal() << var_samples, var_samples, var_samples;
+    S_init = D_init.toDenseMatrix();
+    filter_->setInitBuffer(N_init, w_err, w_rot, N_acc, S_init);
     
     Vec4 q_BI;
     q_BI << q_BI_vec_[0],q_BI_vec_[1], q_BI_vec_[2], q_BI_vec_[3];
@@ -255,37 +264,25 @@ void OptitrackStateEstimatorRos::callbackOptitrack(const geometry_msgs::PoseStam
 
 void OptitrackStateEstimatorRos::getParameters(){
     // get parameters
-    if(!ros::param::has("~topic_imu")) throw std::runtime_error("OptitrackStateEstimatorRos - no 'topic_imu' is set. terminate program.\n");
-    ros::param::get("~topic_imu", topicname_imu_);
+    //sub topic names
+    ROSUtils::checkAndLoad<std::string>("topic_imu", topicname_imu_);
+    ROSUtils::checkAndLoad<std::string>("topic_mag", topicname_mag_);
+    ROSUtils::checkAndLoad<std::string>("topic_optitrack", topicname_optitrack_);
 
-    if(!ros::param::has("~topic_mag")) throw std::runtime_error("OptitrackStateEstimatorRos - no 'topic_mag' is set. terminate program.\n");
-    ros::param::get("~topic_mag", topicname_mag_);
-
-    if(!ros::param::has("~topic_optitrack")) throw std::runtime_error("OptitrackStateEstimatorRos - no 'topic_optitrack' is set. terminate program.\n");
-    ros::param::get("~topic_optitrack", topicname_optitrack_);
-    
-    if(!ros::param::has("~topic_nav_filtered")) throw std::runtime_error("OptitrackStateEstimatorRos - no 'topic_nav_filtered' is set. terminate program.\n");
-    ros::param::get("~topic_nav_filtered", topicname_nav_filtered_);
+    //pub topic names
+    ROSUtils::checkAndLoad<std::string>("topic_nav_filtered", topicname_nav_filtered_);
     topicname_nav_filtered_lpf_ = topicname_nav_filtered_ + "/lpf";
-
-    if(!ros::param::has("~topic_nav_raw")) throw std::runtime_error("OptitrackStateEstimatorRos - no 'topic_nav_raw' is set. terminate program.\n");
-    ros::param::get("~topic_nav_raw", topicname_nav_raw_);
-
-    if(!ros::param::has("~noise_accel"))
-        throw std::runtime_error("there is no 'noise_accel'. ");
-    if(!ros::param::has("~noise_gyro"))
-        throw std::runtime_error("there is no 'noise_gyro'. ");
-    if(!ros::param::has("~noise_mag"))
-        throw std::runtime_error("there is no 'noise_mag'. ");
-    if(!ros::param::has("~verbose_all_estimation")) throw std::runtime_error("OptitrackStateEstimatorRos - no 'verbose_all_estimation_' is set. terminate program.\n");
-    ros::param::get("~verbose_all_estimation", verbose_all_estimation_);
+    ROSUtils::checkAndLoad<std::string>("topic_nav_raw", topicname_nav_raw_);
+    ROSUtils::checkAndLoad<std::string>("topic_nav_filtered", topicname_nav_filtered_);
+    ROSUtils::checkAndLoad<double>("noise_accel", noise_std_acc_);
+    ROSUtils::checkAndLoad<double>("noise_gyro", noise_std_gyro_);
+    ROSUtils::checkAndLoad<double>("noise_mag", noise_std_mag_);
+    ROSUtils::checkAndLoad<bool>("verbose_all_estimation", verbose_all_estimation_);
+    ROSUtils::checkAndLoad<double>("noise_optitrack_position", noise_optitrack_position_);
+    ROSUtils::checkAndLoad<double>("noise_optitrack_orientation", noise_optitrack_orientation_);
 
     ROS_INFO_STREAM("Verbose all estimation: " << (verbose_all_estimation_ ? "true" : "false") );
 
-    if(!ros::param::has("~noise_optitrack_position"))
-        throw std::runtime_error("there is no 'noise_optitrack_position'.");
-    if(!ros::param::has("~noise_optitrack_orientation"))
-        throw std::runtime_error("there is no 'noise_optitrack_orientation'.");
 
     if(!ros::param::has("~q_BI"))
         throw std::runtime_error("there is no 'q_BI'. ");
@@ -293,36 +290,23 @@ void OptitrackStateEstimatorRos::getParameters(){
     nh_.param("get_bias_from_params", get_bias_from_param_, false);
     if(get_bias_from_param_) {
         ROS_INFO("Get Bias From Param = True. Loading values from rosparam server");
-        if(!ros::param::has("~acc_bias"))
-            throw std::runtime_error("there is no 'acc_bias'. ");
-        if(!ros::param::has("~gyro_bias"))
-            throw std::runtime_error("there is no 'gyro_bias'. ");
-        if(!ros::param::has("~mag_bias"))
-            throw std::runtime_error("there is no 'mag_bias'. ");
-        nh_.param("acc_bias", acc_bias_, std::vector<double>());
-        nh_.param("gyro_bias", gyro_bias_, std::vector<double>());
-        nh_.param("mag_bias", mag_bias_, std::vector<double>());
+
+        ROSUtils::checkVectorSizeAndLoad<double>("acc_bias", acc_bias_, 3);
+        ROSUtils::checkVectorSizeAndLoad<double>("gyro_bias", gyro_bias_, 3);
+        ROSUtils::checkVectorSizeAndLoad<double>("mag_bias", mag_bias_, 3);
     }
 
     else{
         ROS_INFO("Get Bias From Param = False. Bias will be estimated assuming that the platform is standing still for few seconds");
     }
 
-    if(acc_bias_.size() != 3)    
-        throw std::runtime_error("'acc_bias_.size() != 3. acc_bias_.size() should be 3.");
-    if(gyro_bias_.size() != 3)    
-        throw std::runtime_error("'gyro_bias_.size() != 3. gyro_bias_.size() should be 3.");
-    if(mag_bias_.size() != 3)    
-        throw std::runtime_error("'mag_bias_.size() != 3. mag_bias_.size() should be 3.");
+    ROSUtils::checkVectorSizeAndLoad<double>("q_BI", q_BI_vec_, 4);
 
-    nh_.param("q_BI", q_BI_vec_, std::vector<double>());
-    if(q_BI_vec_.size() != 4)
-        throw std::runtime_error("'q_BI_vec_.size() != 4. q_BI_vec_.size() should be 4.");
-    
-    ros::param::get("~noise_accel", noise_std_acc_);
-    ros::param::get("~noise_gyro",  noise_std_gyro_);
-    ros::param::get("~noise_mag",   noise_std_mag_);
 
-    ros::param::get("~noise_optitrack_position",    noise_optitrack_position_);
-    ros::param::get("~noise_optitrack_orientation", noise_optitrack_orientation_);
+    // Added by KGC. Init Buffer initialization
+    ROSUtils::checkAndLoad<int>("initialization/N_init_samples", N_init);
+    ROSUtils::checkAndLoad<int>("initialization/N_acc_samples", N_acc);
+    ROSUtils::checkAndLoad<double>("initialization/w_err", w_err);
+    ROSUtils::checkAndLoad<double>("initialization/w_rot", w_rot);
+    ROSUtils::checkAndLoad<double>("initialization/stdv_samples", stdv_samples);
 };
