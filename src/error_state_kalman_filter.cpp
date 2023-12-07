@@ -227,6 +227,8 @@ void ESKF::updateOptitrack(const Vec3& p_observe, const Vec4& q_observe, double 
         T_rx_init_.emplace(0, T_rx_init);
         T_xr_init_.emplace(0, T_rx_init.Inverse());
         std::cout << " Initial transform T_WB(0) : \n" << T_rx_init << "\n";
+        geometry::Tf T_XI = geometry::Tf(fixed_param_.q_BI, Vec3::Zero());
+        geometry::Tf T_WI0 = T_rx_init.mult(T_XI); // T_WB * T_BI
         return;
     }
 
@@ -315,6 +317,11 @@ void ESKF::updateAprilTag(const ApriltagInfoArr &apriltag_detections, double t_n
             T_xr_init_.emplace(id, T_xr);
             T_rx_init_.emplace(id, T_rx);
         }
+
+        geometry::Tf T_XI = fixed_param_.T_CI;
+        geometry::Tf T_WT;
+        apriltag_world_poses_.getTxt(ref_tag_id_, T_WT);
+        T_WI0 = T_WT.mult(T_rx_init).mult(T_XI); // T_WT * T_TC * T_CI
         return;
     }
     for(const auto& det : apriltag_detections.tag_infos){
@@ -441,17 +448,8 @@ void ESKF::showFilterStates(){
 };
 
 // Added by KGC
-ESKF::NominalState ESKF::getWorldFrameState(const geometry::Tf &T_wr, const std::string& mode) const {
+ESKF::NominalState ESKF::getWorldFrameState() const {
     geometry::Tf T_NI(X_nom_.q, X_nom_.p);
-    geometry::Tf T_XI, T_rx_init;
-    if(mode == "optitrack"){
-        T_XI = geometry::Tf(fixed_param_.q_BI, Vec3::Zero());
-    }
-    else{
-        T_XI = geometry::Tf(fixed_param_.T_CI);
-    }
-    T_rx_init = T_rx_init_.at(ref_tag_id_);
-    geometry::Tf T_WI0 = T_wr.mult(T_rx_init).mult(T_XI);
     geometry::Tf T_WI = T_WI0.mult(T_NI);
     ESKF::NominalState X_wi;
     X_wi.setPosition(T_WI.trans());
@@ -460,7 +458,6 @@ ESKF::NominalState ESKF::getWorldFrameState(const geometry::Tf &T_wr, const std:
     X_wi.setVelocity(v_WI);
     X_wi.setBiasAcc(X_nom_.ba);
     X_wi.setBiasGyro(X_nom_.bg);
-
     return X_wi;
 }
 

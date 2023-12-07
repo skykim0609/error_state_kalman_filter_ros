@@ -124,7 +124,7 @@ public:
 
     void showFilterStates();
 
-    NominalState getWorldFrameState(const geometry::Tf &T_wr, const std::string& mode) const;
+    NominalState getWorldFrameState() const;
 
 // Test functions
 public:
@@ -604,6 +604,7 @@ private:
     ErrorState   dX_;
     std::map<int, geometry::Tf> T_xr_init_; // T_bw(0) for optitrack, T_ct(0) for apriltag
     std::map<int, geometry::Tf> T_rx_init_; // T_wb(0) for optitrack, T_tc(0) for apriltag
+    geometry::Tf T_WI0; // initial world frame coordinate of imu.
     int ref_tag_id_; // recommended : The better observed(closely observed) tag. 0 for optitrack
     ApriltagInfoArr apriltag_world_poses_;
     ApriltagInfoArr apriltag_ref_poses_; // pose w.r.t. ref tag

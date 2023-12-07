@@ -202,8 +202,7 @@ void ApriltagStateEstimatorRos::callbackApriltag(const apriltag_ros::AprilTagDet
     nav_raw_current_.header.stamp = ros::Time::now();
 
     //Position and orientation
-    geometry::Tf T_WT_; apriltag_world_poses.getTxt(ref_tag_id_, T_WT_);
-    ESKF::NominalState X_nom_w = filter_->getWorldFrameState(T_WT_, "apriltag");
+    ESKF::NominalState X_nom_w = filter_->getWorldFrameState();
     Mat1515 P;
     filter_->getCovariance(P);
 
@@ -284,8 +283,7 @@ void ApriltagStateEstimatorRos::callbackIMU(const sensor_msgs::ImuConstPtr &msg)
         nav_filtered_current_.header.stamp = ros::Time::now();
 
         // Position and orientation. In world frame
-        geometry::Tf T_WT_; apriltag_world_poses.getTxt(ref_tag_id_, T_WT_);
-        ESKF::NominalState X_nom_w = filter_->getWorldFrameState(T_WT_, "apriltag");
+        ESKF::NominalState X_nom_w = filter_->getWorldFrameState();
 
         //X_nom.p = filter_->getFixedParameters().R_BI*X_nom.p;
         nav_filtered_current_.pose.pose.position.x = X_nom_w.p(0); // global

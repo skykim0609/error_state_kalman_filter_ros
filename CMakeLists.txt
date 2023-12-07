@@ -55,3 +55,6 @@ target_link_libraries (test_expm ${catkin_LIBRARIES} Eigen3::Eigen)
 
 add_executable(test_quat src/test_quaternion.cpp ${SRC})
 target_link_libraries (test_quat ${catkin_LIBRARIES} Eigen3::Eigen)
+
+add_executable(traj_comparator src/traj_comparator.cpp src/traj_comparator_node.cpp ${SRC})
+target_link_libraries(traj_comparator ${catkin_LIBRARIES} Eigen3::Eigen)

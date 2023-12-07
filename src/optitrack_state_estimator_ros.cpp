@@ -144,7 +144,7 @@ void OptitrackStateEstimatorRos::callbackIMU(const sensor_msgs::ImuConstPtr& msg
         nav_filtered_current_.header.stamp = ros::Time::now();
 
         // Position and orientation. In {w} frame
-        ESKF::NominalState X_nom_w = filter_->getWorldFrameState(geometry::Tf::Identity(), "apriltag");
+        ESKF::NominalState X_nom_w = filter_->getWorldFrameState();
 
         //X_nom.p = filter_->getFixedParameters().R_BI*X_nom.p;
         nav_filtered_current_.pose.pose.position.x = X_nom_w.p(0); // global

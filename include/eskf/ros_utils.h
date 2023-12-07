@@ -9,6 +9,9 @@
 #include <vector>
 #include <ros/ros.h>
 
+#include <geometry_msgs/Pose.h>
+#include "eskf/geometry_library.h"
+
 namespace ROSUtils{
 template <typename T> void checkAndLoad(const std::string& param_name, T& placeholder, bool is_local=true){
     std::string local_param_name;
@@ -27,6 +30,15 @@ template <typename T> void checkVectorSizeAndLoad(const std::string& param_name,
                                  + std::string(" ( Got vector size : ") + std::to_string(vec.size())+std::string(").");
         throw std::runtime_error(err_string);
     }
+}
+
+[[nodiscard]] inline geometry::Tf posemsgToTf(const geometry_msgs::Pose& msg){
+    geometry::Tf T;
+    auto p = msg.position;
+    auto q = msg.orientation;
+    T.setTrans(Vec3(p.x, p.y, p.z));
+    T.setRot(Vec4(q.w, q.x, q.y, q.z));
+    return T;
 }
 }//namespace ROSUtils
 

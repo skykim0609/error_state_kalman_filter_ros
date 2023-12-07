@@ -72,6 +72,13 @@ namespace geometry {
         const Vec4& rot() const{
             return q;
         }
+        void setTrans(const Vec3& p_){
+            p = p_;
+        }
+        void setRot(const Vec4& q_){
+            q = q_/ q_.norm();
+        }
+
         const Mat33 rotmat() const{
             return q2r(q);
         }
