@@ -79,7 +79,7 @@ private:
     /*loaded from rosparam*/
     //session params
     double print_every_;
-    std::string outfilepath;
+    std::string output_dir;
     std::string session_name;
 
     //init related
@@ -104,4 +104,8 @@ private:
 
     std::vector<GtEstPair> gt_est_history;
     std::vector<PoseError> pose_error_history;
+
+    //logging
+    void printLog(const std::string& logfile_name) const;
+    void printCsvFiles(const std::string& pose_error_csv, const std::string& pose_csv) const;
 };

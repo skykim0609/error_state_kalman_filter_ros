@@ -20,7 +20,6 @@ int main(int argc, char **argv) {
     catch(std::exception& e){
         ROS_ERROR_STREAM(e.what());
     }
-    ROS_INFO_STREAM("Traj comparator node terminating. save to file");
-    // TODO : save file
+    ROS_INFO_STREAM("Traj comparator node terminated");
     return 1;
 }

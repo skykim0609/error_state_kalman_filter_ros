@@ -1,13 +1,16 @@
 //
 // Created by skykim0609 on 23. 12. 7.
 //
+#include <fstream>
+#include <filesystem>
 
 #include "eskf/traj_comparator.h"
-#include <fstream>
 
 #define RISC(thr, X) ROS_INFO_STREAM_COND(VERBOSITY >= thr, X)
 
 using namespace geometry;
+namespace fs = std::filesystem;
+using fs_path = fs::path;
 
 bool TrajComparator::InitBuffer::tryInitialize(const Vec4 &q_ib_nom, geometry::Tf &T_ib, geometry::Tf &T_wm) {
     if(N_samples < N_init) return false;
@@ -101,7 +104,7 @@ TrajComparator::TrajComparator(const ros::NodeHandle& nh):nh_(nh), got_gt_pose(f
     ROSUtils::checkAndLoad<int>("N_max_iter", N_max_iter_);
     ROSUtils::checkAndLoad<int>("N_init_samples", N_init_samples_);
     ROSUtils::checkAndLoad<double>("w_thresh", w_thresh_);
-    ROSUtils::checkAndLoad<std::string>("outfilepath", outfilepath);
+    ROSUtils::checkAndLoad<std::string>("output_dir", output_dir);
     ROSUtils::checkAndLoad<std::string>("session_name", session_name);
     ROSUtils::checkAndLoad<std::string>("gt_pose_topic", gt_pose_topic);
     ROSUtils::checkAndLoad<std::string>("est_nav_topc", est_nav_topic);
@@ -177,21 +180,95 @@ void TrajComparator::run(){
 }
 
 void TrajComparator::output() const{
-    RISC(1, "Writing History to "<<outfilepath);
-    std::ofstream ofs;
-    ofs.open(outfilepath);
-    ofs << "Session "<<session_name<<"\n";
-    ofs << "=======================Relative coordinate frame calibration : \n";
-    ofs <<"T_wm(odometry map to world frame) : "<<T_wm_<<"\n";
-    ofs <<"T_ib(body to IMU frame) : "<<T_ib_<<"\n";
-    ofs <<"================================================\n";
+    RISC(1, "Exporting Result to "<< output_dir);
+    fs_path output_dir_fs(output_dir);
+    if(!fs::exists(fs_path(output_dir_fs))){
+        RISC(0, "Output directory "<<output_dir<<" does not exists. Try creating");
+        try{
+            if(fs::create_directory(output_dir)) {
+                RISC(0, "Creation successful");
+            }
+        }
+        catch(const fs::filesystem_error& e){
+            ROS_ERROR_STREAM(e.what());
+            return;
+        }
+    }
+    fs_path log_fs = output_dir_fs / fs_path("log.txt");
+    printLog(log_fs.string());
 
-    ofs <<"======================GT pose and Estimated pose & Pose Error history\n";
+    fs_path pose_error_fs = output_dir_fs / fs_path("pose_error.csv");
+    fs_path pose_fs = output_dir_fs / fs_path("gt_est_aligned.csv");
+    printCsvFiles(pose_error_fs.string(), pose_fs.string());
+}
+
+void TrajComparator::printLog(const std::string &logfile_name) const {
+    RISC(2, "Writing log file to "<<logfile_name);
+    std::ofstream ofs_log;
+    ofs_log.open(logfile_name);
+    ofs_log << "Session " << session_name << "\n";
+    ofs_log << "=======================Relative coordinate frame calibration : \n";
+    ofs_log << "T_wm(odometry map to world frame) : " << T_wm_ << "\n";
+    ofs_log << "T_ib(body to IMU frame) : " << T_ib_ << "\n";
+    ofs_log << "================================================\n";
+    ofs_log << "======================GT pose and Estimated pose & Pose Error history\n";
     size_t n_hist = gt_est_history.size();
-    if(n_hist != pose_error_history.size()) 
+    if(n_hist != pose_error_history.size())
         throw std::runtime_error("Pose Error history size != gt_est_history size");
     for(size_t i = 0; i  < n_hist;  ++i){
-        ofs<<gt_est_history[i]<<pose_error_history[i]<<"\n";
+        ofs_log << gt_est_history[i] << pose_error_history[i] << "\n";
     }
-    ofs.close();
+    ofs_log.close();
+    RISC(2, "Done");
+}
+
+void TrajComparator::printCsvFiles(const std::string &pose_error_csv, const std::string &pose_csv) const {
+    RISC(2, "Writing pose history / pose error history file to "<<pose_csv<<", "<<pose_error_csv);
+    std::ofstream ofs_pe, ofs_pose;
+    ofs_pe.open(pose_error_csv);
+    ofs_pose.open(pose_csv);
+    ofs_pe << "dpx,dpy,dpz,dp_norm,drx,dry,drz,dr_norm\n";
+    ofs_pose <<"p_wg_x,p_wg_y,p_wg_z,q_wg_w,q_wg_x,q_wg_y,q_wg_z,"
+            <<"p_we_x,p_we_y,p_we_z,q_we_w,q_we_x,q_we_y,q_we_z\n";
+    size_t n_hist = gt_est_history.size();
+    if(n_hist != pose_error_history.size())
+        throw std::runtime_error("Pose Error history size != gt_est_history size");
+    for(size_t i = 0; i  < n_hist;  ++i){
+        auto Twg_est = gt_est_history[i].getTwgEst(T_wm_, T_ib_);
+        const auto& Twg = gt_est_history[i].T_wg;
+        const PoseError& pe = pose_error_history[i];
+        // pose error
+        for(int k = 0; k < 3; ++k){
+            ofs_pe << pe.trans_err(k)<<",";
+        }
+        ofs_pe <<pe.dt_norm<<",";
+        for(int k = 0; k < 3; ++k){
+            ofs_pe << pe.rot_err(k)<<",";
+        }
+        ofs_pe <<pe.dr_norm<<"\n";
+
+        // gt pose
+        Vec3 twg_gt = Twg.trans();
+        Vec4 qwg_gt = Twg.rot();
+        for(int k = 0; k < 3; ++k){
+            ofs_pose << twg_gt(k) <<",";
+        }
+        for(int k = 0; k < 4; ++k){
+            ofs_pose << qwg_gt(k) <<",";
+        }
+
+        // est pose
+        Vec3 twg_est = Twg_est.trans();
+        Vec4 qwg_est = Twg_est.rot();
+        for(int k = 0; k < 3; ++k){
+            ofs_pose << twg_est(k) <<",";
+        }
+        for(int k = 0; k < 3; ++k){
+            ofs_pose << qwg_est(k) <<",";
+        }
+        ofs_pose <<qwg_est(3) <<"\n";
+    }
+    ofs_pose.close();
+    ofs_pe.close();
+    RISC(2, "Done");
 }
