@@ -305,7 +305,9 @@ void ESKF::updateAprilTag(const ApriltagInfoArr &apriltag_detections, double t_n
         X_nom_.show();
         geometry::Tf T_xr_init = ref_tag.T_xt; // T_ct0(0)
         geometry::Tf T_rx_init = T_xr_init.Inverse(); // T_ct0(0)
-        std::cout << " Initial pose of tag" << ref_tag_id_ <<"from camera T_ct(0) : \n" << T_xr_init << "\n";
+        T_xr_init_.emplace(ref_tag_id_, T_xr_init);
+        T_rx_init_.emplace(ref_tag_id_, T_rx_init);
+        std::cout << " Initial pose of tag " << ref_tag_id_ <<" from camera T_ct(0) : \n" << T_xr_init << "\n";
         for(const auto& tag_ref_pose : apriltag_ref_poses_.tag_infos){
             int id =tag_ref_pose.id;
             geometry::Tf T_xr = T_xr_init.mult(tag_ref_pose.T_xt); // T_ct0 * T_t0t1
@@ -646,13 +648,16 @@ bool ESKF::tryInitializeBias(const Vec3 &am, const Vec3 &wm, double t) {
         return false;
     }
 
-    init_buffer_->addImuData(wm, am, t);
+    bool added = init_buffer_->addImuData(wm, am, t);
     if(init_buffer_->isInitializationReady()){
-        ba_init_ = init_buffer_->estimateAccBias(fixed_param_.q_IW_init_nominal, fixed_param_.grav);
+        std::pair<Vec3, Vec4> ba_dq_pair = init_buffer_->estimateAccBias(fixed_param_.q_IW_init_nominal, fixed_param_.grav);
+        ba_init_ = ba_dq_pair.first;
         bg_init_ = init_buffer_->estimateGyroBias();
         std::cout<<"Bias Initialized!\n";
         std::cout<<"ba_init : "<<ba_init_.transpose()<<"\n";
         std::cout<<"bg_init : "<<bg_init_.transpose()<<"\n";
+        std::cout<<"q_IW_init_nominal difference : "<<ba_dq_pair.second.transpose() <<"\n";
+        fixed_param_.q_IW_init_nominal = geometry::q1_mult_q2(fixed_param_.q_IW_init_nominal, ba_dq_pair.second);
         X_nom_.setBiasGyro(bg_init_);
         X_nom_.setBiasAcc(ba_init_);
         isBiasInitialized_ = true;

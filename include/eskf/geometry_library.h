@@ -82,9 +82,8 @@ namespace geometry {
         }
         const Vec6 getVec6Form() const{
             Vec6 pw;
-            pw << p(0), p(1), p(2);
             Vec3 w = q2rotvec(q);
-            pw.tail<3>() = w;
+            pw << p, w;
             return pw;
         }
         friend std::ostream& operator<<(std::ostream& os, const Tf& T);

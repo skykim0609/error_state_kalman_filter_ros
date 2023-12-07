@@ -169,7 +169,8 @@ public:
 
             // grav << 0.0, 0.0, -GRAVITY_MAGNITUDE; // VN100t
             // grav << GRAVITY_MAGNITUDE,0.0,0.0; // MPU9250
-            grav  = R_IB*Vec3(0.0,0.0,GRAVITY_MAGNITUDE); // ? Why? -> g_ib in initial imu frame?
+            //grav  = R_IB*Vec3(0.0,0.0,GRAVITY_MAGNITUDE); // ? Why? -> g_ib in initial imu frame?
+            grav = Vec3(0.0, 0.0, GRAVITY_MAGNITUDE);
 
             Vec4 q_CI;
             Vec3 t_CI;
@@ -179,10 +180,10 @@ public:
             T_IC = T_CI.Inverse();
 
             q_IW_init_nominal << 0.5, 0.5, -0.5, 0.5;
+
             // Added by KGC. for debugging purpose
             auto R_IW_init_nominal = geometry::q2r(q_IW_init_nominal);
             std::cout<<"R_IW_init_nominal : \n"<<R_IW_init_nominal<<"\n";
-
         };
 
         void setTransformFromCameraToIMU(const Vec4& q_CI_in, const Vec3& t_CI_in){
@@ -546,12 +547,13 @@ public:
                               << "(last imu time)\n";
                     return false;
                 }
-                ++N_imu_data;
                 double dt = t - t_last_imu;
                 dt_sum += dt;
                 wm_dt_sum += dt * (wm + wm_last) / 2.0;
                 am_dt_sum += dt * (am + am_last) / 2.0;
             }
+            ++N_imu_data;
+            
             // update last
             t_last_imu = t;
             wm_last = wm;
@@ -567,12 +569,13 @@ public:
             return wm_dt_sum / dt_sum;
         }
 
-        [[nodiscard]] Vec3 estimateAccBias(const Vec4& q_iw_nominal, const Vec3& g_w) const{
+        [[nodiscard]] std::pair<Vec3, Vec4> estimateAccBias(const Vec4& q_iw_nominal, const Vec3& g_w) const{
             double min_cost = std::numeric_limits<double>::max();
             const Vec3 dw_mean = Vec3::Zero();
             Vec3 am_mean = am_dt_sum / dt_sum;
             Vec3 ba_best;
             ba_best.setZero();
+            Vec4 dq_best;
             for( int i = 0; i < N_acc_samples; ++i){
                 Vec3 dw = RandomUtils::generateGaussianRV<3>(dw_mean, S_iw);
                 Vec4 dq = geometry::rotvec2q(dw);
@@ -583,9 +586,10 @@ public:
                 if(cost < min_cost){
                     min_cost = cost;
                     ba_best = ba;
+                    dq_best = dq;
                 }
             }
-            return ba_best;
+            return std::make_pair(ba_best, dq_best);
         }
     };
 

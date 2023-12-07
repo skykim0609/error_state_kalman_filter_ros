@@ -146,10 +146,15 @@ void ApriltagStateEstimatorRos::run(){
 
         t_curr = ros::Time::now();
 
+        if(t_curr < t_prev ) {
+            std::cerr<< std::fixed;
+            std::cerr<<"Time reversal happened? t_curr : "<<t_curr.toNSec()<<", t_prev : "<<t_prev.toNSec()<<"\n";
+        }
         if( verbose_all_estimation_ && (t_curr-t_prev).toSec() >= period_show ) {
             filter_->showFilterStates();
             t_prev = t_curr;
         }
+        
 
         ros::spinOnce();
         rate.sleep();
