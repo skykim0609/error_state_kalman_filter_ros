@@ -42,6 +42,8 @@ public:
         }
         Vec3 rot_err, trans_err;
         double dr_norm, dt_norm;
+
+        friend std::ostream& operator<<(std::ostream& os, const PoseError& P);
     };
 
     struct GtEstPair{
@@ -53,12 +55,15 @@ public:
         geometry::Tf T_wg; // world -> GT pose
         geometry::Tf T_me; // map -> est pose
         double time;
+
+        friend std::ostream& operator<<(std::ostream& os, const GtEstPair& P);
     };
 
 public:
     TrajComparator(const ros::NodeHandle& nh);
     void run();
     void print() const;
+    void output() const;
 private:
     /*ros related*/
     ros::NodeHandle nh_;
@@ -70,19 +75,21 @@ private:
 
     void callbackGT(const geometry_msgs::PoseStampedConstPtr& msg);
     void callbackEst(const nav_msgs::OdometryConstPtr& msg);
+    /* end ros related*/
     /*loaded from rosparam*/
-    // params
+    //session params
     double print_every_;
     std::string outfilepath;
+    std::string session_name;
 
-    //init
+    //init related
     int N_max_iter_;
     int N_init_samples_;
     double w_thresh_;
 
     // nominal transforms
-    geometry::Tf T_wm_nom;
-    geometry::Tf T_ib_nom; // won't
+    Vec4 q_ib_nom; // won't
+    /*end loaded from rosparam*/
 
     // Estimated transforms
     geometry::Tf T_wm_;

@@ -1,0 +1,9 @@
+<launch>
+
+<node pkg="error_state_kalman_filter_ros" name="traj_comparator" type="traj_comparator" output="screen">
+	<param name="" value=""/>
+
+</node>
+
+
+</launch>

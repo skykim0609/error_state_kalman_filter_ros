@@ -3,6 +3,7 @@
 //
 
 #include "eskf/traj_comparator.h"
+#include <fstream>
 
 #define RISC(thr, X) ROS_INFO_STREAM_COND(VERBOSITY >= thr, X)
 
@@ -63,6 +64,7 @@ Vec4 TrajComparator::InitBuffer::estimateQib(const Vec4& q_ib_nom) const {
     }
     RISC(0, "estimate Qib : Max iter reached but does not match error threshold. Error : "<<err);
     RISC(0, "estimate Qib : q_ib : "<<q_ib_curr.transpose());
+    return q_ib_curr;
 }
 
 geometry::Tf TrajComparator::GtEstPair::getTwgEst(const geometry::Tf &T_wm, const geometry::Tf &T_eg) const {
@@ -81,21 +83,37 @@ TrajComparator::PoseError TrajComparator::GtEstPair::computePoseError(const geom
     return PoseError(rot_err, trans_err);
 }
 
+std::ostream& operator<<(std::ostream& os, const TrajComparator::PoseError& P){
+    os <<"Trans Error : "<<P.trans_err.transpose()<<", size : "<<P.dt_norm<<"\n";
+    os <<"Rot Error : "<<P.trans_err.transpose()<<", size : "<<P.dr_norm<<"\n";
+    return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const TrajComparator::GtEstPair& P){
+    os <<"At time "<<P.time<<"\n";
+    os <<"T_wg(gt) : "<<P.T_wg<<"\n";
+    os <<"T_me(est) : "<<P.T_me<<"\n";
+    return os;
+}
+
 TrajComparator::TrajComparator(const ros::NodeHandle& nh):nh_(nh), got_gt_pose(false), is_initialized(false){
     ROSUtils::checkAndLoad<double>("print_every", print_every_);
     ROSUtils::checkAndLoad<int>("N_max_iter", N_max_iter_);
     ROSUtils::checkAndLoad<int>("N_init_samples", N_init_samples_);
     ROSUtils::checkAndLoad<double>("w_thresh", w_thresh_);
     ROSUtils::checkAndLoad<std::string>("outfilepath", outfilepath);
+    ROSUtils::checkAndLoad<std::string>("session_name", session_name);
     ROSUtils::checkAndLoad<std::string>("gt_pose_topic", gt_pose_topic);
     ROSUtils::checkAndLoad<std::string>("est_nav_topc", est_nav_topic);
+
+    std::vector<double> q_ib_nom_vec;
+    ROSUtils::checkVectorSizeAndLoad<double>("q_ib_nom", q_ib_nom_vec, 4);
 
     sub_gt_ = nh_.subscribe<geometry_msgs::PoseStamped>(gt_pose_topic, 5, &TrajComparator::callbackGT, this);
     sub_est_ = nh_.subscribe<nav_msgs::Odometry>(est_nav_topic, 5, &TrajComparator::callbackEst, this);
 
     init_buffer_ = std::make_unique<InitBuffer>(N_init_samples_, N_max_iter_, w_thresh_);
     this->run();
-
 }
 
 void TrajComparator::callbackGT(const geometry_msgs::PoseStampedConstPtr& msg){
@@ -114,7 +132,7 @@ void TrajComparator::callbackEst(const nav_msgs::OdometryConstPtr &msg) {
     if(!is_initialized){
         init_buffer_->addSamples(T_mi, T_wb);
         RISC(1, "Try initializing Rel transform");
-        if(init_buffer_->tryInitialize(T_ib_nom.rot(), T_ib_, T_wm_)){
+        if(init_buffer_->tryInitialize(q_ib_nom, T_ib_, T_wm_)){
             RISC(0, "Relative Transform Initialized.");
         }
         return;
@@ -150,8 +168,30 @@ void TrajComparator::run(){
         t_curr = ros::Time::now();
         if((t_curr - t_prev).toSec() > print_every_) {
             this->print();
+            t_prev = t_curr;
         }
         ros::spinOnce();
         rate.sleep();
     }
+    this->output();
+}
+
+void TrajComparator::output() const{
+    RISC(1, "Writing History to "<<outfilepath);
+    std::ofstream ofs;
+    ofs.open(outfilepath);
+    ofs << "Session "<<session_name<<"\n";
+    ofs << "=======================Relative coordinate frame calibration : \n";
+    ofs <<"T_wm(odometry map to world frame) : "<<T_wm_<<"\n";
+    ofs <<"T_ib(body to IMU frame) : "<<T_ib_<<"\n";
+    ofs <<"================================================\n";
+
+    ofs <<"======================GT pose and Estimated pose & Pose Error history\n";
+    size_t n_hist = gt_est_history.size();
+    if(n_hist != pose_error_history.size()) 
+        throw std::runtime_error("Pose Error history size != gt_est_history size");
+    for(size_t i = 0; i  < n_hist;  ++i){
+        ofs<<gt_est_history[i]<<pose_error_history[i]<<"\n";
+    }
+    ofs.close();
 }
