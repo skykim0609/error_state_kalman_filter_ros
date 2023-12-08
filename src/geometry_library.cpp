@@ -67,10 +67,11 @@ namespace geometry {
     };
 
     Vec4 rotvec2q(const Vec3& w){
+        static constexpr double eps = 1e-7;
         Vec4 q_res;
         double th = w(0)*w(0) + w(1)*w(1) + w(2)*w(2);
         th = std::sqrt(th);
-        if(th < 1e-7){
+        if(th < eps){
             q_res << 1.0, 0.0, 0.0, 0.0;
         }
         else{
@@ -82,11 +83,17 @@ namespace geometry {
     };
 
     Vec3 q2rotvec(const Vec4& q){
+        static constexpr double eps = 1e-7;
         double cos_th2 = q(0);
         double sin_th2 = q.tail<3>().norm();
-        double th2 = atan2(sin_th2, cos_th2);
-        Vec3 v = q.tail<3>() / sin_th2;
-        return th2 * v;
+        if(sin_th2 < eps){
+            return Vec3::Zero();
+        }
+        else{
+            double th2 = atan2(sin_th2, cos_th2);
+            Vec3 v = q.tail<3>() / sin_th2;
+            return th2 * v;
+        }
     }
 
     Mat33 a2r(double r, double p, double y){

@@ -6,8 +6,8 @@
 #include "eskf/signal_handler_linux.h"
 
 int main(int argc, char **argv) {
-    ros::init(argc, argv, "traj_comparator", ros::init_options::NoSigintHandler);
-    SignalHandle::initSignalHandler();
+    ros::init(argc, argv, "traj_comparator");
+    //SignalHandle::initSignalHandler();
 
     ros::NodeHandle nh("~");
     ROS_INFO_STREAM("Traj Comparator node starts");

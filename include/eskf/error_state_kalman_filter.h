@@ -170,7 +170,7 @@ public:
             // grav << 0.0, 0.0, -GRAVITY_MAGNITUDE; // VN100t
             // grav << GRAVITY_MAGNITUDE,0.0,0.0; // MPU9250
             //grav  = R_IB*Vec3(0.0,0.0,GRAVITY_MAGNITUDE); // ? Why? -> g_ib in initial imu frame?
-            grav = Vec3(0.0, 0.0, GRAVITY_MAGNITUDE);
+            grav = Vec3(0.0, 0.0, GRAVITY_MAGNITUDE); // grav is now in world frame.
 
             Vec4 q_CI;
             Vec3 t_CI;

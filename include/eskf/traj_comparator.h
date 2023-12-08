@@ -104,6 +104,8 @@ private:
 
     std::vector<GtEstPair> gt_est_history;
     std::vector<PoseError> pose_error_history;
+    double t_start;
+    bool got_first_time;
 
     //logging
     void printLog(const std::string& logfile_name) const;

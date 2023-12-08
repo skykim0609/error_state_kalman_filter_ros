@@ -99,7 +99,7 @@ std::ostream& operator<<(std::ostream& os, const TrajComparator::GtEstPair& P){
     return os;
 }
 
-TrajComparator::TrajComparator(const ros::NodeHandle& nh):nh_(nh), got_gt_pose(false), is_initialized(false){
+TrajComparator::TrajComparator(const ros::NodeHandle& nh):nh_(nh), got_gt_pose(false), is_initialized(false), got_first_time(false){
     ROSUtils::checkAndLoad<double>("print_every", print_every_);
     ROSUtils::checkAndLoad<int>("N_max_iter", N_max_iter_);
     ROSUtils::checkAndLoad<int>("N_init_samples", N_init_samples_);
@@ -107,10 +107,11 @@ TrajComparator::TrajComparator(const ros::NodeHandle& nh):nh_(nh), got_gt_pose(f
     ROSUtils::checkAndLoad<std::string>("output_dir", output_dir);
     ROSUtils::checkAndLoad<std::string>("session_name", session_name);
     ROSUtils::checkAndLoad<std::string>("gt_pose_topic", gt_pose_topic);
-    ROSUtils::checkAndLoad<std::string>("est_nav_topc", est_nav_topic);
+    ROSUtils::checkAndLoad<std::string>("est_nav_topic", est_nav_topic);
 
     std::vector<double> q_ib_nom_vec;
     ROSUtils::checkVectorSizeAndLoad<double>("q_ib_nom", q_ib_nom_vec, 4);
+    q_ib_nom << q_ib_nom_vec[0],q_ib_nom_vec[1],q_ib_nom_vec[2],q_ib_nom_vec[3];
 
     sub_gt_ = nh_.subscribe<geometry_msgs::PoseStamped>(gt_pose_topic, 5, &TrajComparator::callbackGT, this);
     sub_est_ = nh_.subscribe<nav_msgs::Odometry>(est_nav_topic, 5, &TrajComparator::callbackEst, this);
@@ -130,6 +131,11 @@ void TrajComparator::callbackEst(const nav_msgs::OdometryConstPtr &msg) {
         RISC(1, "callbackEst : Got odometry, but no GT pose received");
         return;
     }
+    if(!got_first_time){
+        RISC(1, "callbackEst : Got the first estimated estimation msg");
+        got_first_time = true;
+        t_start = msg->header.stamp.toSec();
+    }
     geometry::Tf T_mi = ROSUtils::posemsgToTf(odom_T_mi_last.pose.pose);
     geometry::Tf T_wb = ROSUtils::posemsgToTf(pose_T_wb_last.pose);
     if(!is_initialized){
@@ -137,10 +143,11 @@ void TrajComparator::callbackEst(const nav_msgs::OdometryConstPtr &msg) {
         RISC(1, "Try initializing Rel transform");
         if(init_buffer_->tryInitialize(q_ib_nom, T_ib_, T_wm_)){
             RISC(0, "Relative Transform Initialized.");
+            is_initialized = true;
         }
         return;
     }
-    double t = odom_T_mi_last.header.stamp.toSec();
+    double t = odom_T_mi_last.header.stamp.toSec() - t_start;
     GtEstPair pair(T_wb, T_mi, t);
     gt_est_history.emplace_back(pair);
     pose_error_history.emplace_back(pair.computePoseError(T_wm_, T_ib_));
@@ -156,8 +163,8 @@ void TrajComparator::print() const{
         dw_sum += pose_error.dr_norm;
         dt_sum += pose_error.dt_norm;
     }
-    std::cout<<"Rotation Error average : "<<dw_sum / n_pose<<"\n";
     std::cout<<"Position Error Average : "<<dt_sum / n_pose<<"\n";
+    std::cout<<"Rotation Error average : "<<dw_sum / n_pose<<"\n";
 }
 
 void TrajComparator::run(){
@@ -218,6 +225,18 @@ void TrajComparator::printLog(const std::string &logfile_name) const {
     for(size_t i = 0; i  < n_hist;  ++i){
         ofs_log << gt_est_history[i] << pose_error_history[i] << "\n";
     }
+    // print averager
+    ofs_log <<" ====================== Summary ======================\n";
+    size_t n_pose = pose_error_history.size();
+    ofs_log<<"# of pose comparisons : "<<n_pose<<"\n";
+    double dw_sum = 0.0;
+    double dt_sum = 0.0;
+    for(const PoseError& pose_error : pose_error_history){
+        dw_sum += pose_error.dr_norm;
+        dt_sum += pose_error.dt_norm;
+    }
+    ofs_log<<"Position Error Average : "<<dt_sum / n_pose<<"\n";
+    ofs_log<<"Rotation Error average : "<<dw_sum / n_pose<<"\n";
     ofs_log.close();
     RISC(2, "Done");
 }

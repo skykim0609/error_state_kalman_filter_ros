@@ -1,5 +1,7 @@
 #include "eskf/error_state_kalman_filter.h"
 
+#define DEBUG_ACC_BIAS true
+
 // Initialize Static member variables
 Mat33 ESKF::I33 = Mat33::Identity();
 //Mat44 ESKF::I44 = Mat44::Identity();
@@ -277,6 +279,9 @@ void ESKF::updateOptitrack(const Vec3& p_observe, const Vec4& q_observe, double 
 
     // Reset dX
     dX_.replace(dX_addition_vec);
+#if DEBUG_ACC_BIAS
+    std::cout<<"Updated dX in updateApriltag (ba) " <<dX_.dba.transpose()<<"\n";
+#endif
 
     // Replace Error Covariance Matrix
     CovarianceMat P_update = (I1515-K*H)*P_*(I1515-K*H).transpose() + K*measurement_noise_.R*K.transpose();    // dg_ddX << I66, O63, O63,
@@ -352,12 +357,18 @@ void ESKF::updateAprilTag(const ApriltagInfoArr &apriltag_detections, double t_n
 
         // Kalman gain
         KMat6 K = P_ * H.transpose() * (H * P_ * H.transpose() + Cov_NI).inverse();
+#if DEBUG_ACC_BIAS
+        std::cout <<"Kalman gain, ba portion \n"<<K.block<3, 6>(9, 0)<<"\n";
+#endif
         // recovered nominal state + error state
         Vec6 y_hat;
         y_hat.head<3>() = X_nom_.p + dX_.dp;
         y_hat.tail<3>() = geometry::q2rotvec(geometry::q1_mult_q2(X_nom_.q, geometry::rotvec2q(dX_.dth)));
 
         ErrorStateVec dX_addition_vec  =  K*(y-y_hat);
+#if DEBUG_ACC_BIAS
+        std::cout <<"Innovation (ba) : "<<dX_addition_vec.segment<3>(9).transpose()<<"\n";
+#endif
         ErrorStateVec dX_update_vec = dX_.getVectorform() + dX_addition_vec;
 
         ErrorState dX_update;
@@ -475,6 +486,9 @@ void ESKF::predictNominal(const NominalState& X_nom, const Vec3& am, const Vec3&
     X_nom_update.q  = geometry::q_right_mult(geometry::rotvec2q((wm-X_nom.bg)*dt))*X_nom.q;
     X_nom_update.ba = X_nom.ba;
     X_nom_update.bg = X_nom.bg;
+#if DEBUG_ACC_BIAS
+    //std::cout << "predictNominal : ba value "<<X_nom_update.ba.transpose()<<"\n";
+#endif
 };
 
 void ESKF::predictError(const expmFMat& eF0dt, const ErrorState& dX,
@@ -482,9 +496,15 @@ void ESKF::predictError(const expmFMat& eF0dt, const ErrorState& dX,
 {
     // Update nominal state
     ErrorStateVec dX_vec_update;
+#if DEBUG_ACC_BIAS
+    //std::cout <<"predictError : expmF, ba part : \n"<<eF0dt.block<3, 15>(9, 0)<<"\n";
+#endif
     dX_vec_update = eF0dt*(dX.getVectorform());
 
     dX_update.replace(dX_vec_update);
+#if DEBUG_ACC_BIAS
+    //std::cout << "predictError : dba value "<<dX_vec_update.segment<3>(9).transpose()<<"\n";
+#endif
 };
 
 void ESKF::errorStateF(const NominalState& X_nom, const Vec3& am, const Vec3& wm,

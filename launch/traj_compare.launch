@@ -1,17 +1,23 @@
 <launch>
 
 <arg name="output_rootdir" default="/home/skykim0609/Desktop/Projects/Dabin_apriltag_ekf_related/output"/>
-<arg name="session_name" default="seq1"/>
-<arg name="output_subdir" default="$(arg output_rootdir)/$(session_name)"/>
+<arg name="session_name" default="seq2"/>
+<arg name="output_subdir" default="$(arg output_rootdir)/$(arg session_name)"/>
+<arg name="gt_pose_topic" default="/optitrack/dbk_drone/poseStamped"/>
+<arg name="est_nav_topic" default="/state_estimator/filtered"/> <!-- filtered/lpf ? -->
 
 <node pkg="error_state_kalman_filter_ros" name="traj_comparator" type="traj_comparator" output="screen">
 	<param name="print_every" value="2.0"/>
 	<param name="N_max_iter" type="int" value="30"/>
 	<param name="N_init_samples" type="int" value="20"/>
-	<param name="w_thresh" type="double" value="0.05"/>
-
+	<param name="w_thresh" type="double" value="0.01"/>
 	<param name="output_dir" value="$(arg output_subdir)/"/>
 
+	<param name="session_name" value="$(arg session_name)"/>
+	<param name="gt_pose_topic" value="$(arg gt_pose_topic)"/>
+	<param name="est_nav_topic" value="$(arg est_nav_topic)"/>
+
+	<rosparam param="q_ib_nom">[0.5, 0.5, -0.5, 0.5]</rosparam>
 </node>
 
 
